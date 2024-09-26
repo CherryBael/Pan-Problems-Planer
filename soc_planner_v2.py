@@ -35,7 +35,7 @@ class Planner:
         order = self.calculate_order(marks)
         # Массив с количеством людей, поставивших задачу в приоритетные среди всех оставшихся людей
         # Нужен для определения задач, которые имеются в приоритете среди еще не проверенных людей
-        problem_prefs = {i:0 for i in range(1, self.pref_len + 1)}
+        problem_prefs = {i:0 for i in range(1, self.problems_quantity + 1)}
         # Новые оценки из предположения, что человек, которому выдали задачу, получит за нее балл
         new_marks = marks
         # Вычисляем начальное состояние этого массива
@@ -70,6 +70,7 @@ class Planner:
             shuffle(mins)
             distribution[x] = mins[0]
             new_marks[x] += 1
+            unselected.remove(mins[0])
         return distribution, new_marks, unselected
     # Итоговый подсчет
     def distribute_problems(self):

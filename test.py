@@ -3,9 +3,9 @@ from utils import generate_entry
 def test_main():
     marks = generate_entry("marks.json")
     marks = {x:int(y) for x,y in marks.items()}
-    preferences = generate_entry("preferences.json") 
+    preferences = generate_entry("tasks.json") 
     blacklist = []
-    plr = Planner(marks, preferences, blacklist, 5)
+    plr = Planner(marks, preferences, blacklist, 22)
     ans = plr.distribute_problems()
     for x in list(ans.keys()):
         print(x, ans[x])

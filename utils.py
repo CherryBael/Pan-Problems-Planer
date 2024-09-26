@@ -40,7 +40,7 @@ def google_sheet_to_json(sheet_url, json_filename=''):
     result_dict = {}
     for row in reader:
         if row['Группа'] == 'Группа 1':  # Замените на название вашей группы
-            student = row['Студент']
+            student = row['Студент'].split()[0] + " " + row['Студент'].split()[1]
             total_sum = row['Сумма']
             result_dict[student] = total_sum
 
@@ -55,7 +55,7 @@ def google_sheet_to_json(sheet_url, json_filename=''):
 
 def list_min_values(lst):
     minval = min(lst)
-    mins = [i for i,x in enumerate(lst) if x == minval]
+    mins = [i + 1 for i,x in enumerate(lst) if x == minval]
     return mins
 
 def generate_entry(inp_entries):
