@@ -1,6 +1,7 @@
 from tgtoken import tgtoken
 import json
 import os
+import asyncio
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -9,7 +10,10 @@ from telegram.ext import (
     ConversationHandler,
     filters,
     ContextTypes,
+    CallbackContext,
 )
+from datetime import datetime
+import pytz
 
 # Пути к файлам
 TASKS_FILE = 'tasks.json'
@@ -18,8 +22,9 @@ USERS_FILE = 'users.json'
 # Константы для состояний
 AWAITING_NAME, AWAITING_TASKS = range(2)
 
-# Константа для максимального количества задач
+# Константа для максимального количества задач и их максимального значения
 MAX_TASKS = 5
+MAX_TASK_NUMBER = 22
 
 # Функция для сохранения данных в файл
 def save_data(filename, data):
@@ -34,6 +39,16 @@ def load_data(filename):
         with open(filename, 'r', encoding='utf-8') as f:
             return json.load(f)
     return {}
+
+# Функция для архивирования данных
+def archive_tasks():
+    current_time = datetime.now(pytz.timezone('Europe/Moscow'))
+    if current_time.weekday() == 4 and current_time.hour == 22:  # Пятница и 22:00
+        old_tasks_filename = f"old_tasks_{current_time.strftime('%Y-%m-%d')}.json"
+        tasks_data = load_data(TASKS_FILE)
+        save_data(old_tasks_filename, tasks_data)  # Сохраняем текущие задачи в архив
+        save_data(TASKS_FILE, {})  # Очищаем файл tasks.json
+        print(f"Архивирование выполнено: {old_tasks_filename} создан и {TASKS_FILE} очищен.")
 
 # Стартовая команда
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -93,26 +108,34 @@ async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return ConversationHandler.END
 
     print(f"Пользователь {user_data['full_name']} вводит задачи")  # Debug
-    await update.message.reply_text(f"Введите до {MAX_TASKS} номеров задач через пробел.")
+    await update.message.reply_text(f"Введите ровно {MAX_TASKS} номеров задач через пробел.")
     context.user_data['state'] = AWAITING_TASKS  # Устанавливаем состояние
     return AWAITING_TASKS  # Важно вернуть правильное состояние
 
 # Получение номеров задач
 async def receive_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_data = context.user_data
-    tasks = update.message.text.split()  # Разделяем по пробелу
+    tasks_input = update.message.text.strip()  # Получаем ввод пользователя
 
-    print(f"Получены задачи: {tasks} от пользователя {user_data['full_name']}")  # Debug
+    print(f"Получен ввод задач: '{tasks_input}' от пользователя {user_data['full_name']}")  # Debug
 
+    # Проверка на правильный формат ввода
+    tasks = [task.strip() for task in tasks_input.split()]  # Разделяем по пробелу
+
+    if len(tasks) != MAX_TASKS:
+        print(f"Ошибка: неверное количество задач (ожидалось {MAX_TASKS}, получено {len(tasks)})")  # Debug
+        await update.message.reply_text(f"Пожалуйста, введите ровно {MAX_TASKS} номеров задач, разделенных пробелами.")
+        return AWAITING_TASKS
+
+    # Проверка на то, что все задачи - целые числа в пределах от 1 до MAX_TASK_NUMBER
     try:
-        # Преобразуем в список целых чисел
-        task_numbers = [int(task.strip()) for task in tasks if task.strip().isdigit()]
-        if len(task_numbers) > MAX_TASKS:
-            task_numbers = task_numbers[:MAX_TASKS]  # Берем только MAX_TASKS задач
+        task_numbers = [int(task) for task in tasks]
+        if any(task < 1 or task > MAX_TASK_NUMBER for task in task_numbers):
+            raise ValueError("Некорректные номера задач")
         user_data['task_numbers'] = task_numbers
     except ValueError:
         print("Ошибка: введены некорректные данные для задач")  # Debug
-        await update.message.reply_text(f"Пожалуйста, введите только целые числа, разделенные пробелами, не более {MAX_TASKS} задач.")
+        await update.message.reply_text(f"Пожалуйста, вводите только целые числа от 1 до {MAX_TASK_NUMBER}, разделенные пробелами.")
         return AWAITING_TASKS
 
     # Сохраняем данные о задачах
@@ -127,6 +150,23 @@ async def receive_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     await update.message.reply_text(f"Вы ввели следующие номера задач: {', '.join(map(str, user_data['task_numbers']))}.")
     context.user_data['state'] = None  # Сброс состояния
     return ConversationHandler.END
+
+# Команда для проверки задач пользователя
+async def check_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_data = context.user_data
+    full_name = user_data.get('full_name')
+
+    if full_name is None:
+        await update.message.reply_text("Пожалуйста, введите свое имя с помощью команды /start.")
+        return
+
+    all_data = load_data(TASKS_FILE)
+    tasks = all_data.get(full_name, None)
+
+    if tasks is None:
+        await update.message.reply_text("У вас нет сохраненных задач.")
+    else:
+        await update.message.reply_text(f"Ваши сохраненные задачи: {', '.join(map(str, tasks))}.")
 
 # Универсальный обработчик сообщений
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -169,11 +209,17 @@ def main() -> None:
     # Обработчики команд
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("tasks", tasks_command))
+    app.add_handler(CommandHandler("check", check_tasks))
     app.add_handler(CommandHandler("help", help_command))
 
     # Запуск бота
     print("Бот запущен, ожидаем взаимодействия...")  # Debug
     app.run_polling()
+
+    # Запуск архивации задач каждую пятницу в 22:00 по Московскому времени
+    while True:
+        archive_tasks()
+        asyncio.sleep(3600)  # Проверяем каждый час
 
 if __name__ == '__main__':
     main()
