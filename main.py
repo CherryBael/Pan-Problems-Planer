@@ -236,16 +236,6 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     else:
         await update.message.reply_text("Я не понимаю. Пожалуйста, используйте команды /start, /tasks или /help.")
 
-# Команда для выполнения событий
-async def execute_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    if user_id not in context.user_data or not context.user_data[user_id].get('is_admin'):
-        await update.message.reply_text("У вас нет прав доступа для выполнения этой команды.")
-        return
-
-    exec_distribution_wrapper()
-    await update.message.reply_text("Задачи успешно распределены")
-
 async def execute_archive(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     if user_id not in context.user_data or not context.user_data[user_id].get('is_admin'):
@@ -257,8 +247,45 @@ async def execute_archive(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Новые функции
 # Обертка над exec_distribution
-def exec_distribution_wrapper():
-    exec_distribution(blacklist, QUANTITY_OF_TASKS, RANDOM_SEED)
+# Обертка для выполнения распределения задач и сохранения данных
+# Обертка для выполнения распределения задач и сохранения данных
+def exec_distribution_wrapper(blacklist, quantity_of_tasks, random_seed):
+    # Вызов функции exec_distribution
+    ans, preferences, marks, blacklist, rand_seed = exec_distribution(blacklist, quantity_of_tasks, random_seed)
+    
+    # Сохранение данных в файл info.json
+    info_data = {
+        'preferences': preferences,
+        'marks': marks,
+        'blacklist': blacklist,
+        'rand_seed': rand_seed,
+    }
+    save_data('info.json', info_data)  # Сохраняем данные в info.json
+    
+    return ans  # Возвращаем результаты распределения
+
+
+# Команда для выполнения задач
+async def execute_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    
+    if user_id not in context.user_data or not context.user_data[user_id].get('is_admin'):
+        await update.message.reply_text("У вас нет прав доступа для выполнения этой команды.")
+        return
+
+    # Вызов обертки для выполнения распределения задач
+    ans = exec_distribution_wrapper(blacklist, QUANTITY_OF_TASKS, RANDOM_SEED)
+
+    # Форматируем сообщение для пользователей
+    ans_message = "\n".join([f"{name}: {', '.join(map(str, tasks))}" for name, tasks in ans.items()])
+    
+    # Отправляем сообщение всем пользователям
+    users_data = load_data(USERS_FILE)
+    for user_id in users_data.keys():
+        await context.bot.send_message(chat_id=user_id, text=f"Распределение задач завершено:\n{ans_message}")
+
+    await update.message.reply_text("Задачи успешно распределены.")
+
 
 def check_and_execute_distribution():
     now = datetime.now(pytz.timezone('Europe/Moscow'))
