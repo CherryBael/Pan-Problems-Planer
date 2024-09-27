@@ -6,6 +6,7 @@ import os
 import asyncio
 from datetime import datetime
 import pytz
+import signal
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -19,17 +20,77 @@ from telegram.ext import (
 # Пути к файлам
 TASKS_FILE = 'tasks.json'
 USERS_FILE = 'users.json'
-
+SETTINGS_FILE = 'settings.json'
+STATE_FILE = 'state.json'
 # Константы
 AWAITING_NAME, AWAITING_TASKS, AWAITING_PASSWORD = range(3)
-MAX_ATTEMPTS = 3
-QUANTITY_OF_PREFS = 5
-QUANTITY_OF_TASKS = 22
-RANDOM_SEED = 2201
+MAX_ATTEMPTS = 1
+QUANTITY_OF_PREFS = 0
+QUANTITY_OF_TASKS = 0
+RANDOM_SEED = 0
 blacklist = []
 
 # Флаги
 POST_EXEC_STATE = False
+
+# Функция для распаковки настроек
+def load_settings():
+    global MAX_ATTEMPTS, QUANTITY_OF_PREFS, QUANTITY_OF_TASKS, RANDOM_SEED
+
+    try:
+        with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+            settings_data = json.load(f)
+        MAX_ATTEMPTS = settings_data['MAX_ATTEMPTS']
+        QUANTITY_OF_PREFS = settings_data['QUANTITY_OF_PREFS']
+        QUANTITY_OF_TASKS = settings_data['QUANTITY_OF_TASKS']
+        RANDOM_SEED = settings_data['RANDOM_SEED']
+        print("Настройки успешно загружены.")
+    
+    except FileNotFoundError:
+        print(f"Файл {SETTINGS_FILE} не найден.")
+    except json.JSONDecodeError:
+        print("Ошибка при чтении файла настроек. Некорректный формат JSON.")
+
+def load_state():
+    global blacklist
+    global POST_EXEC_STATE
+
+    try:
+        with open(STATE_FILE, 'r', encoding='utf-8') as f:
+            settings_data = json.load(f)
+
+        blacklist = settings_data['blacklist']
+        POST_EXEC_STATE = settings_data['POST_EXEC_STATE']
+
+        print("Состояние успешно загружено.")
+    
+    except FileNotFoundError:
+        print(f"Файл {STATE_FILE} не найден.")
+    except json.JSONDecodeError:
+        print("Ошибка при чтении файла настроек. Некорректный формат JSON.")
+
+def save_state():
+    global blacklist, POST_EXEC_STATE
+
+    # Формируем данные для сохранения
+    state_data = {
+        'blacklist': blacklist,
+        'POST_EXEC_STATE': POST_EXEC_STATE
+    }
+
+    # Пишем данные в файл state.json
+    try:
+        with open(STATE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(state_data, f, ensure_ascii=False, indent=4)
+        print("Состояние успешно сохранено в state.json.")
+    except Exception as e:
+        print(f"Ошибка при сохранении состояния: {e}")
+
+
+def shutdown_handler(signum, frame):
+    print("Завершение работы бота...")
+    save_state()  # Сохраняем состояние перед завершением
+    exit(0)
 
 # Функция для сохранения данных в файл
 def save_data(filename, data):
@@ -311,6 +372,9 @@ def check_and_execute_distribution():
 
 # Основная функция
 def main() -> None:
+    load_settings()
+    load_state()
+    signal.signal(signal.SIGINT, shutdown_handler)
     print("Запуск бота...")  # Debug
     app = ApplicationBuilder().token(tgtoken()).build()
 
@@ -335,7 +399,6 @@ def main() -> None:
     app.add_handler(CommandHandler("help", help_command))  # Команда помощи
     app.add_handler(CommandHandler("send_info", send_info_file))  # Команда помощи
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages))  # Хендлер для всех сообщений
-
     # Запуск бота
     print("Бот запущен, ожидаем взаимодействия...")  # Debug
     app.run_polling()
