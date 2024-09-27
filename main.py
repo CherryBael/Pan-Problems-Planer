@@ -25,6 +25,7 @@ AWAITING_NAME, AWAITING_TASKS, AWAITING_PASSWORD = range(3)
 MAX_ATTEMPTS = 3
 QUANTITY_OF_PREFS = 5
 QUANTITY_OF_TASKS = 22
+RANDOM_SEED = 2201
 blacklist = []
 
 # Функция для сохранения данных в файл
@@ -239,7 +240,7 @@ async def execute_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Вызов функции exec_distribution из модуля planner_wrap
-    exec_distribution(blacklist, QUANTITY_OF_TASKS)
+    exec_distribution(blacklist, QUANTITY_OF_TASKS, RANDOM_SEED)
     await update.message.reply_text("Задачи успешно выполнены.")
 
 # Основная функция

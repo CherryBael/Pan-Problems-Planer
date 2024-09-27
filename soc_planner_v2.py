@@ -1,8 +1,5 @@
 from random import shuffle, seed, random
 from utils import list_min_values
-# Задаем сид генерации для воспроизводимости результатов рандомайзера
-# Нужно, чтобы каждый у себя на машине мог убедиться, что код на сервере отработал честно 
-seed(2201)
 # Словарь оценок в формате: Имя -- количество баллов
 marks = {}
 # Словарь предпочтений в формате: Имя -- отсортированный по убыванию предпочтений массив номеров задач
@@ -13,7 +10,10 @@ blacklist = []
 problems_quantity = 0
 
 class Planner:
-    def __init__(self, marks, preferences, blacklist, problems_quantity):
+    def __init__(self, marks, preferences, blacklist, problems_quantity, rand_seed):
+        # Задаем сид генерации для воспроизводимости результатов рандомайзера
+        # Нужно, чтобы каждый у себя на машине мог убедиться, что код на сервере отработал честно 
+        seed(rand_seed)
         # Длина списка предпочтений
         self.pref_len = len(list(preferences.values())[0])
         # Проверяем корректность данных
