@@ -223,10 +223,12 @@ async def receive_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 # Команда для получения справки
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    print("Команда /help")  # Debug
-    await update.message.reply_text("Бот для распределения задач по Макро 2 группы пан"
+    await update.message.reply_text("Бот для распределения задач по Макро 2 группы ПАН\n"
                                      "Введите /start для регистрации пользователя,/tasks для отправки задач, /check для проверки того, заявки на какие задачи система зачла, /send_info, чтобы получить файл с паарметрами для сверки результатов распределения")
-
+async def admin_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text("Помощь по админ панели\n"
+                                    "Введите /exec_distr для немедленного распределения задач, /exec_archive для сброса всех заявок на задачи, /update_settings для обновления файла настроек")
+                                    
 # Команда для проверки задач пользователя
 async def check_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_data = context.user_data
@@ -455,7 +457,8 @@ def main() -> None:
     app.add_handler(CommandHandler("exec_distr", execute_tasks))  # Команда для выполнения задач администратором
     app.add_handler(CommandHandler("exec_archive", execute_archive))  # Команда для выполнения задач администратором
     app.add_handler(CommandHandler("help", help_command))  # Команда помощи
-    app.add_handler(CommandHandler("send_info", send_info_file))  # Команда помощи
+    app.add_handler(CommandHandler("admin_help", admin_help_command))  # Команда помощи
+    app.add_handler(CommandHandler("send_info", send_info_file))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages))  # Хендлер для всех сообщений
     # хендлер для изменения настроек
     app.add_handler(update_settings_handler)
