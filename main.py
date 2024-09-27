@@ -32,11 +32,11 @@ AWAITING_NAME, AWAITING_TASKS, AWAITING_PASSWORD = range(3)
 AWAITING_FILE = range(1)
 
 # Константы, которые будут загружены из файла
-MAX_ATTEMPTS = 0
 QUANTITY_OF_PREFS = 0
 QUANTITY_OF_TASKS = 0
 RANDOM_SEED = 0
 blacklist = []
+ADMINS = []
 DEADLINE_DAY = 0
 DEADLINE_HOUR = 0
 DEADLINE_MINUTE = 0
@@ -45,18 +45,18 @@ POST_EXEC_STATE = False
 
 # Функция для распаковки настроек
 def load_settings():
-    global MAX_ATTEMPTS, QUANTITY_OF_PREFS, QUANTITY_OF_TASKS, RANDOM_SEED
+    global QUANTITY_OF_PREFS, QUANTITY_OF_TASKS, RANDOM_SEED, ADMINS
     global DEADLINE_DAY, DEADLINE_HOUR, DEADLINE_MINUTE
     try:
         with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
             settings_data = json.load(f)
-        MAX_ATTEMPTS = settings_data['MAX_ATTEMPTS']
         QUANTITY_OF_PREFS = settings_data['QUANTITY_OF_PREFS']
         QUANTITY_OF_TASKS = settings_data['QUANTITY_OF_TASKS']
         RANDOM_SEED = settings_data['RANDOM_SEED']
         DEADLINE_DAY = settings_data['DEADLINE_DAY']
         DEADLINE_HOUR = settings_data['DEADLINE_HOUR']
         DEADLINE_MINUTE = settings_data['DEADLINE_MINUTE']
+        ADMINS = settings_data['admins']
         print("Настройки успешно загружены.")
     
     except FileNotFoundError:
@@ -254,53 +254,16 @@ def archive_tasks_wrapper():
         archive_tasks()
 
 
-# Команда для авторизации админа
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = str(update.effective_user.id)
-
-    if user_id in context.user_data and context.user_data[user_id].get('is_admin'):
-        await update.message.reply_text("Вы уже авторизованы как администратор.")
+    # Проверить, есть ли пользователь в списке администраторов
+    if user_id in ADMINS:
+        await update.message.reply_text("Вы авторизованы как администратор.")
         return ConversationHandler.END
-
-    await update.message.reply_text("Введите пароль для доступа к админским функциям.")
     
-    # Устанавливаем состояние ожидания пароля
-    context.user_data['state'] = AWAITING_PASSWORD
-    return AWAITING_PASSWORD
-
-# Проверка пароля
-async def receive_password(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_id = str(update.effective_user.id)
-
-    # Проверка на количество попыток
-    if user_id in context.user_data and 'attempts' in context.user_data[user_id]:
-        attempts = context.user_data[user_id]['attempts']
-        if attempts >= MAX_ATTEMPTS:
-            await update.message.reply_text("Превышено максимальное количество попыток.")
-            return ConversationHandler.END
-
-    password = update.message.text
-
-    if check_password(password):  # Функция проверки пароля из модуля passwd
-        context.user_data[user_id] = {'is_admin': True}  # Устанавливаем статус администратора
-        context.user_data[user_id].pop('attempts', None)  # Удаляем данные о попытках
-        await update.message.reply_text("Вы успешно авторизованы как администратор.")
-        return ConversationHandler.END
-    else:
-        # Увеличиваем количество попыток
-        if user_id not in context.user_data:
-            context.user_data[user_id] = {}
-        context.user_data[user_id]['attempts'] = context.user_data[user_id].get('attempts', 0) + 1
-        
-        remaining_attempts = MAX_ATTEMPTS - context.user_data[user_id]['attempts']
-        await update.message.reply_text(f"Неверный пароль. Осталось попыток: {remaining_attempts}.")
-        
-        if remaining_attempts <= 0:
-            await update.message.reply_text("Превышено максимальное количество попыток.")
-            del context.user_data[user_id]  # Удаляем данные пользователя из контекста
-            return ConversationHandler.END
-
-    return AWAITING_PASSWORD
+    # Если не администратор, запросить пароль для доступа
+    await update.message.reply_text("К сожалению (или счастью), вы не админ")
+    return ConversationHandler.END
 
 # Хендлер для всех сообщений
 async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -310,8 +273,6 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await receive_tasks(update, context)
     elif context.user_data.get('state') == AWAITING_NAME:
         await receive_name(update, context)
-    elif context.user_data.get('state') == AWAITING_PASSWORD:
-        await receive_password(update, context)
     else:
         await update.message.reply_text("Неизвестная команда, введите /help для вывода справки.")
 
@@ -469,7 +430,6 @@ def main() -> None:
         states={
             AWAITING_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_name)],
             AWAITING_TASKS: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_tasks)],
-            AWAITING_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_password)],
             AWAITING_FILE: [MessageHandler(filters.Document.ALL, receive_settings_file)],
         },
         fallbacks=[CommandHandler("help", help_command)],
