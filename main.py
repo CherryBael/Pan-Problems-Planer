@@ -4,6 +4,8 @@ from planner_wrap import exec_distribution
 import json
 import os
 import asyncio
+import threading
+import time
 from datetime import datetime
 import pytz
 import signal
@@ -27,19 +29,21 @@ AWAITING_NAME, AWAITING_TASKS, AWAITING_PASSWORD = range(3)
 AWAITING_FILE = range(1)
 
 # Константы, которые будут загружены из файла
-MAX_ATTEMPTS = 1
+MAX_ATTEMPTS = 0
 QUANTITY_OF_PREFS = 0
 QUANTITY_OF_TASKS = 0
 RANDOM_SEED = 0
 blacklist = []
-
+DEADLINE_DAY = 0
+DEADLINE_HOUR = 0
+DEADLINE_MINUTE = 0
 # Флаги
 POST_EXEC_STATE = False
 
 # Функция для распаковки настроек
 def load_settings():
     global MAX_ATTEMPTS, QUANTITY_OF_PREFS, QUANTITY_OF_TASKS, RANDOM_SEED
-
+    global DEADLINE_DAY, DEADLINE_HOUR, DEADLINE_MINUTE
     try:
         with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
             settings_data = json.load(f)
@@ -47,6 +51,9 @@ def load_settings():
         QUANTITY_OF_PREFS = settings_data['QUANTITY_OF_PREFS']
         QUANTITY_OF_TASKS = settings_data['QUANTITY_OF_TASKS']
         RANDOM_SEED = settings_data['RANDOM_SEED']
+        DEADLINE_DAY = settings_data['DEADLINE_DAY']
+        DEADLINE_HOUR = settings_data['DEADLINE_HOUR']
+        DEADLINE_MINUTE = settings_data['DEADLINE_MINUTE']
         print("Настройки успешно загружены.")
     
     except FileNotFoundError:
@@ -210,8 +217,8 @@ async def receive_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 # Команда для получения справки
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     print("Команда /help")  # Debug
-    await update.message.reply_text("Этот бот поможет вам управлять вашими задачами. "
-                                     "Введите /start для регистрации или /tasks для отправки задач.")
+    await update.message.reply_text("Бот для распределения задач по Макро 2 группы пан"
+                                     "Введите /start для регистрации пользователя,/tasks для отправки задач, /check для проверки того, заявки на какие задачи система зачла, /send_info, чтобы получить файл с паарметрами для сверки результатов распределения")
 
 # Команда для проверки задач пользователя
 async def check_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -240,7 +247,7 @@ def archive_tasks():
 # Обертка для архивирования задач с проверкой времени
 def archive_tasks_wrapper():
     now = datetime.now(pytz.timezone('Europe/Moscow'))
-    if now.weekday() == 2 and now.hour == 0:  # Среда в полночь
+    if now.weekday() == 2 and now.hour == 0 and now.minute == 0:  # Среда в полночь
         archive_tasks()
 
 
@@ -303,14 +310,13 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     elif context.user_data.get('state') == AWAITING_PASSWORD:
         await receive_password(update, context)
     else:
-        await update.message.reply_text("Я не понимаю. Пожалуйста, используйте команды /start, /tasks или /help.")
+        await update.message.reply_text("Неизвестная команда, введите /help для вывода справки.")
 
 async def execute_archive(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     if user_id not in context.user_data or not context.user_data[user_id].get('is_admin'):
         await update.message.reply_text("У вас нет прав доступа для выполнения этой команды.")
         return
-    print("starting archieve check")
     archive_tasks()
     await update.message.reply_text("Архивирование успешно выполнено")
 
@@ -370,8 +376,10 @@ async def execute_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def check_and_execute_distribution():
     now = datetime.now(pytz.timezone('Europe/Moscow'))
-    if now.weekday() == 4 and now.hour == 22:  # Пятница в 22:00
-        execute_distribution()
+    print(DEADLINE_DAY, DEADLINE_HOUR, DEADLINE_MINUTE)
+    if now.weekday() == DEADLINE_DAY and now.hour == DEADLINE_HOUR and now.minute == DEADLINE_MINUTE:
+        print("Lets gooooo")
+        exec_distribution_wrapper(blacklist, QUANTITY_OF_TASKS,  RANDOM_SEED)
 
 
 # Шаг 1: Команда /update_settings, бот просит отправить файл
@@ -423,7 +431,15 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Операция отменена.")
     return ConversationHandler.END
 
-# Основная функция
+def background_tasks():
+    time.sleep(10)
+    while True:
+        print("Running background tasks...")
+        archive_tasks_wrapper()
+        check_and_execute_distribution()
+        time.sleep(60)  # Проверяем раз в 10 секунд
+
+
 def main() -> None:
     load_settings()
     load_state()
@@ -463,15 +479,12 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages))  # Хендлер для всех сообщений
     # хендлер для изменения настроек
     app.add_handler(update_settings_handler)
+    # Запуск фоновых задач
+    thread = threading.Thread(target=background_tasks, daemon=True)
+    thread.start()
     # Запуск бота
     print("Бот запущен, ожидаем взаимодействия...")  # Debug
     app.run_polling()
-
-    # Запуск проверки каждые 10 секунд
-    while True:
-        asyncio.run(archive_tasks_wrapper())
-        asyncio.run(check_and_execute_distribution())
-        asyncio.sleep(10)  # Проверяем раз в 10 секунд
 
 if __name__ == '__main__':
     main()
