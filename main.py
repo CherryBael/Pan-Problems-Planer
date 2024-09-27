@@ -1,6 +1,5 @@
 from tgtoken import tgtoken
-from passwd import check_password
-from planner_wrap import exec_distribution
+from planner_wrap import exec_distribution, get_marks
 import json
 import os
 import asyncio
@@ -145,11 +144,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 # Получение имени и фамилии
 async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    marks = get_marks()
     user_data = context.user_data
     full_name = update.message.text
     user_id = str(update.effective_user.id)
 
     print(f"Получено имя: {full_name} от пользователя {user_id}")  # Debug
+
+    # Проверяем, есть ли имя пользователя в словаре marks
+    if full_name not in marks:
+        await update.message.reply_text(f"Ошибка: Человека с таким именем и фамилией нет в группе, введи фамилию и имя точно также, как они заданы в гугл таблице (но без отчества)")
+        return ConversationHandler.END
 
     # Сохраняем имя пользователя
     user_data['full_name'] = full_name
@@ -162,7 +167,6 @@ async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     print(f"Имя пользователя сохранено: {full_name}")  # Debug
     await update.message.reply_text(f"Спасибо, {full_name}! Теперь введите /tasks, чтобы отправить номера задач.")
     return ConversationHandler.END
-
 # Команда для отправки номеров задач
 async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_data = context.user_data
