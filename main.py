@@ -251,7 +251,7 @@ async def execute_archive(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Обертка для выполнения распределения задач и сохранения данных
 def exec_distribution_wrapper(blacklist, quantity_of_tasks, random_seed):
     # Вызов функции exec_distribution
-    ans, preferences, marks, blacklist, rand_seed = exec_distribution(blacklist, quantity_of_tasks, random_seed)
+    ans, marks, preferences, blacklist, rand_seed = exec_distribution(blacklist, quantity_of_tasks, random_seed)
     
     # Сохранение данных в файл info.json
     info_data = {
@@ -259,6 +259,7 @@ def exec_distribution_wrapper(blacklist, quantity_of_tasks, random_seed):
         'marks': marks,
         'blacklist': blacklist,
         'rand_seed': rand_seed,
+        'quantity': QUANTITY_OF_TASKS,
     }
     save_data('info.json', info_data)  # Сохраняем данные в info.json
     
