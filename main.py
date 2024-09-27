@@ -7,7 +7,7 @@ import asyncio
 from datetime import datetime
 import pytz
 import signal
-from telegram import Update
+from telegram import Update, InputFile
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -24,6 +24,9 @@ SETTINGS_FILE = 'settings.json'
 STATE_FILE = 'state.json'
 # Константы
 AWAITING_NAME, AWAITING_TASKS, AWAITING_PASSWORD = range(3)
+AWAITING_FILE = range(1)
+
+# Константы, которые будут загружены из файла
 MAX_ATTEMPTS = 1
 QUANTITY_OF_PREFS = 0
 QUANTITY_OF_TASKS = 0
@@ -370,6 +373,56 @@ def check_and_execute_distribution():
     if now.weekday() == 4 and now.hour == 22:  # Пятница в 22:00
         execute_distribution()
 
+
+# Шаг 1: Команда /update_settings, бот просит отправить файл
+async def update_settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+
+    # Проверяем, что пользователь является администратором
+    if user_id not in context.user_data or not context.user_data.get(user_id, {}).get('is_admin'):
+        await update.message.reply_text("У вас нет прав администратора для выполнения этой команды.")
+        return ConversationHandler.END
+
+    # Просим отправить файл
+    await update.message.reply_text("Пожалуйста, отправьте файл с настройками (settings.json).")
+    
+    # Переходим в состояние ожидания файла
+    return AWAITING_FILE
+
+# Шаг 2: Прием и обработка файла settings.json
+async def receive_settings_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    document = update.message.document
+
+    # Проверяем, что файл был отправлен
+    if not document:
+        await update.message.reply_text("Пожалуйста, прикрепите файл с настройками.")
+        return AWAITING_FILE
+
+    # Проверяем, что это файл с расширением .json
+    if not document.file_name.endswith(".json"):
+        await update.message.reply_text("Пожалуйста, отправьте файл формата JSON.")
+        return AWAITING_FILE
+
+    # Получаем файл и сохраняем его
+    file = await document.get_file()
+    file_path = os.path.join(os.getcwd(), SETTINGS_FILE)
+
+    try:
+        # Сохраняем файл
+        await file.download_to_drive(file_path)
+        await update.message.reply_text("Файл settings.json успешно загружен и сохранен.")
+    except Exception as e:
+        await update.message.reply_text(f"Произошла ошибка при сохранении файла: {e}")
+
+    # Завершаем диалог
+    load_settings()
+    return ConversationHandler.END
+
+# Шаг 3: Обработка отмены
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Операция отменена.")
+    return ConversationHandler.END
+
 # Основная функция
 def main() -> None:
     load_settings()
@@ -385,8 +438,17 @@ def main() -> None:
             AWAITING_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_name)],
             AWAITING_TASKS: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_tasks)],
             AWAITING_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_password)],
+            AWAITING_FILE: [MessageHandler(filters.Document.ALL, receive_settings_file)],
         },
         fallbacks=[CommandHandler("help", help_command)],
+    )
+    # Новый ConversationHandler для команды /update_settings
+    update_settings_handler = ConversationHandler(
+        entry_points=[CommandHandler("update_settings", update_settings_command)],
+        states={
+            AWAITING_FILE: [MessageHandler(filters.Document.ALL, receive_settings_file)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
     )
 
     # Обработчики команд
@@ -399,6 +461,8 @@ def main() -> None:
     app.add_handler(CommandHandler("help", help_command))  # Команда помощи
     app.add_handler(CommandHandler("send_info", send_info_file))  # Команда помощи
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages))  # Хендлер для всех сообщений
+    # хендлер для изменения настроек
+    app.add_handler(update_settings_handler)
     # Запуск бота
     print("Бот запущен, ожидаем взаимодействия...")  # Debug
     app.run_polling()
