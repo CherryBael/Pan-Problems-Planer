@@ -28,6 +28,9 @@ QUANTITY_OF_TASKS = 22
 RANDOM_SEED = 2201
 blacklist = []
 
+# Флаги
+POST_EXEC_STATE = False
+
 # Функция для сохранения данных в файл
 def save_data(filename, data):
     print(f"Сохраняем данные в файл: {filename}")  # Debug
@@ -166,6 +169,8 @@ def archive_tasks():
     all_data = load_data(TASKS_FILE)
     save_data(archive_filename, all_data)  # Сохраняем данные в архив
     save_data(TASKS_FILE, {})  # Обнуляем файл задач
+    global POST_EXEC_STATE
+    POST_EXEC_STATE = False
     print(f"Архив сохранен в файл: {archive_filename}")  # Debug
 
 # Обертка для архивирования задач с проверкой времени
@@ -245,6 +250,18 @@ async def execute_archive(update: Update, context: ContextTypes.DEFAULT_TYPE):
     archive_tasks()
     await update.message.reply_text("Архивирование успешно выполнено")
 
+# Функция для отправки файла info.json
+async def send_info_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if POST_EXEC_STATE == True:
+        # Проверяем, существует ли файл info.json
+        if os.path.exists('info.json'):
+            with open('info.json', 'rb') as file:
+                await update.message.reply_document(file, caption="Вот файл с информацией о распределении задач.")
+        else:
+            await update.message.reply_text("Файл info.json не найден.")
+    else:
+        await update.message.reply_text("Распределения задач еще не было.")
+
 # Новые функции
 # Обертка над exec_distribution
 # Обертка для выполнения распределения задач и сохранения данных
@@ -252,7 +269,8 @@ async def execute_archive(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def exec_distribution_wrapper(blacklist, quantity_of_tasks, random_seed):
     # Вызов функции exec_distribution
     ans, marks, preferences, blacklist, rand_seed = exec_distribution(blacklist, quantity_of_tasks, random_seed)
-    
+    global POST_EXEC_STATE
+    POST_EXEC_STATE = True
     # Сохранение данных в файл info.json
     info_data = {
         'preferences': preferences,
@@ -269,14 +287,12 @@ def exec_distribution_wrapper(blacklist, quantity_of_tasks, random_seed):
 # Команда для выполнения задач
 async def execute_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    
     if user_id not in context.user_data or not context.user_data[user_id].get('is_admin'):
         await update.message.reply_text("У вас нет прав доступа для выполнения этой команды.")
         return
 
     # Вызов обертки для выполнения распределения задач
     ans = exec_distribution_wrapper(blacklist, QUANTITY_OF_TASKS, RANDOM_SEED)
-
     # Форматируем сообщение для пользователей
     ans_message = "\n".join([f"{name}: {', '.join(map(str, tasks))}" for name, tasks in ans.items()])
     
@@ -317,6 +333,7 @@ def main() -> None:
     app.add_handler(CommandHandler("exec_distr", execute_tasks))  # Команда для выполнения задач администратором
     app.add_handler(CommandHandler("exec_archive", execute_archive))  # Команда для выполнения задач администратором
     app.add_handler(CommandHandler("help", help_command))  # Команда помощи
+    app.add_handler(CommandHandler("send_info", send_info_file))  # Команда помощи
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages))  # Хендлер для всех сообщений
 
     # Запуск бота
