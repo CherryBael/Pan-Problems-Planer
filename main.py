@@ -160,15 +160,20 @@ async def check_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text(f"Ваши задачи: {tasks}")
 
 # Архивирование задач
-async def archive_tasks():
+# Функция для архивирования задач
+def archive_tasks():
+    archive_filename = f"old_tasks_{datetime.now(pytz.timezone('Europe/Moscow')).strftime('%Y-%m-%d')}.json"
+    all_data = load_data(TASKS_FILE)
+    save_data(archive_filename, all_data)  # Сохраняем данные в архив
+    save_data(TASKS_FILE, {})  # Обнуляем файл задач
+    print(f"Архив сохранен в файл: {archive_filename}")  # Debug
+
+# Обертка для архивирования задач с проверкой времени
+def archive_tasks_wrapper():
     now = datetime.now(pytz.timezone('Europe/Moscow'))
     if now.weekday() == 2 and now.hour == 0:  # Среда в полночь
-        # Создание имени файла архива
-        archive_filename = f"old_tasks_{now.strftime('%Y-%m-%d')}.json"
-        all_data = load_data(TASKS_FILE)
-        save_data(archive_filename, all_data)  # Сохраняем данные в архив
-        save_data(TASKS_FILE, {})  # Обнуляем файл задач
-        print(f"Архив сохранен в файл: {archive_filename}")  # Debug
+        archive_tasks()
+
 
 # Команда для авторизации админа
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -196,7 +201,6 @@ async def receive_password(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             return ConversationHandler.END
 
     password = update.message.text
-    print(f"Введен пароль: {password}")  # Debug
 
     if check_password(password):  # Функция проверки пароля из модуля passwd
         context.user_data[user_id] = {'is_admin': True}  # Устанавливаем статус администратора
@@ -239,9 +243,27 @@ async def execute_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("У вас нет прав доступа для выполнения этой команды.")
         return
 
-    # Вызов функции exec_distribution из модуля planner_wrap
+    exec_distribution_wrapper()
+    await update.message.reply_text("Задачи успешно распределены")
+
+async def execute_archive(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if user_id not in context.user_data or not context.user_data[user_id].get('is_admin'):
+        await update.message.reply_text("У вас нет прав доступа для выполнения этой команды.")
+        return
+    print("starting archieve check")
+    archive_tasks()
+    await update.message.reply_text("Архивирование успешно выполнено")
+
+# Новые функции
+# Обертка над exec_distribution
+def exec_distribution_wrapper():
     exec_distribution(blacklist, QUANTITY_OF_TASKS, RANDOM_SEED)
-    await update.message.reply_text("Задачи успешно выполнены.")
+
+def check_and_execute_distribution():
+    now = datetime.now(pytz.timezone('Europe/Moscow'))
+    if now.weekday() == 4 and now.hour == 22:  # Пятница в 22:00
+        execute_distribution()
 
 # Основная функция
 def main() -> None:
@@ -264,7 +286,8 @@ def main() -> None:
     app.add_handler(CommandHandler("tasks", tasks_command))  # Команда для отправки задач
     app.add_handler(CommandHandler("check", check_tasks))  # Команда для проверки задач
     app.add_handler(CommandHandler("admin", admin_command))  # Команда для администрирования
-    app.add_handler(CommandHandler("execute", execute_tasks))  # Команда для выполнения задач администратором
+    app.add_handler(CommandHandler("exec_distr", execute_tasks))  # Команда для выполнения задач администратором
+    app.add_handler(CommandHandler("exec_archive", execute_archive))  # Команда для выполнения задач администратором
     app.add_handler(CommandHandler("help", help_command))  # Команда помощи
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages))  # Хендлер для всех сообщений
 
@@ -272,10 +295,11 @@ def main() -> None:
     print("Бот запущен, ожидаем взаимодействия...")  # Debug
     app.run_polling()
 
-    # Запуск функции архивирования каждую секунду
+    # Запуск проверки каждые 10 секунд
     while True:
-        asyncio.run(archive_tasks())
-        asyncio.sleep(60)  # Проверяем раз в минуту
+        asyncio.run(archive_tasks_wrapper())
+        asyncio.run(check_and_execute_distribution())
+        asyncio.sleep(10)  # Проверяем раз в 10 секунд
 
 if __name__ == '__main__':
     main()
