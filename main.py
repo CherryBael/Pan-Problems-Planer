@@ -9,7 +9,7 @@ import time
 from datetime import datetime
 import pytz
 import signal
-from telegram import Update, InputFile
+from telegram import Update, InputFile, Bot, Message, User, Chat
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -17,8 +17,11 @@ from telegram.ext import (
     ConversationHandler,
     filters,
     ContextTypes,
+    Application,
+    CallbackContext,
+    ContextTypes
 )
-
+from types import SimpleNamespace
 # Пути к файлам
 TASKS_FILE = 'tasks.json'
 USERS_FILE = 'users.json'
@@ -373,14 +376,27 @@ async def execute_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("Задачи успешно распределены.")
 
+async def simulate_and_notify_all_users(ans):
+    # Создаем поддельный объект бота
+    bot = Bot(token=tgtoken())
+    # Загружаем данные пользователей из файла
+    users_data = load_data('users.json')
+    # Создаем поддельные объекты контекста и обновления
+    context = SimpleNamespace(bot=bot)
+    ans_message = "\n".join([f"{name}: {', '.join(map(str, tasks))}" for name, tasks in ans.items()])
+    # Отправляем сообщение всем пользователям
+    for user_id in users_data.keys():
+        try:
+            await bot.send_message(chat_id=user_id, text=f"Распределение задач завершено:\n{ans_message}")
+        except Exception as e:
+            print(f"Не удалось отправить сообщение пользователю {user_id}: {e}")
 
 def check_and_execute_distribution():
     now = datetime.now(pytz.timezone('Europe/Moscow'))
-    print(DEADLINE_DAY, DEADLINE_HOUR, DEADLINE_MINUTE)
     if now.weekday() == DEADLINE_DAY and now.hour == DEADLINE_HOUR and now.minute == DEADLINE_MINUTE:
-        print("Lets gooooo")
-        exec_distribution_wrapper(blacklist, QUANTITY_OF_TASKS,  RANDOM_SEED)
-
+        ans = exec_distribution_wrapper(blacklist, QUANTITY_OF_TASKS,  RANDOM_SEED)
+        asyncio.run(simulate_and_notify_all_users(ans))
+    return
 
 # Шаг 1: Команда /update_settings, бот просит отправить файл
 async def update_settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
