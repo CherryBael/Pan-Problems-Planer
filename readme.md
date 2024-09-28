@@ -18,8 +18,9 @@
 3) Установить зависимости из requirements.txt (```pip install -r requirements.txt```)
 4) Создать tg бота через @BotFather
 5) Создать файл tgtoken.py со следующим содержанием
-    ```def tgtoken():
-        return "Ваш токен tg бота"```
+```def tgtoken():
+       return "Ваш токен tg бота"
+```
 5) В файле utils.py в функции google_sheet_to_json поменять ссылку на таблицу и номер группы при необхожимости (или другие критерии отбора)
 6) Создать файл settings.json, где указать значения переменных, например:
 ```
