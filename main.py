@@ -36,6 +36,7 @@ QUANTITY_OF_TASKS = 0
 RANDOM_SEED = 0
 blacklist = []
 ADMINS = []
+# DEADLINE_DAY -- 1 понедельник, итд
 DEADLINE_DAY = 0
 DEADLINE_HOUR = 0
 DEADLINE_MINUTE = 0
@@ -77,7 +78,10 @@ def load_state():
         print("Состояние успешно загружено.")
     
     except FileNotFoundError:
-        print(f"Файл {STATE_FILE} не найден.")
+        blacklist = []
+        POST_EXEC_STATE = False
+        save_state()
+        print(f"Файл {STATE_FILE} не найден, будет сгенерирован стандартный")
     except json.JSONDecodeError:
         print("Ошибка при чтении файла настроек. Некорректный формат JSON.")
 
@@ -264,6 +268,7 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     user_id = str(update.effective_user.id)
     # Проверить, есть ли пользователь в списке администраторов
     if user_id in ADMINS:
+        context.user_data[user_id] = {'is_admin': True}  # Устанавливаем статус администратора
         await update.message.reply_text("Вы авторизованы как администратор.")
         return ConversationHandler.END
     
@@ -360,11 +365,17 @@ async def simulate_and_notify_all_users(ans):
 
 def check_and_execute_distribution():
     now = datetime.now(pytz.timezone('Europe/Moscow'))
-    if now.weekday() == DEADLINE_DAY and now.hour == DEADLINE_HOUR and now.minute == DEADLINE_MINUTE:
+    print(now.weekday, now.hour, now.minute)
+    if now.weekday() == DEADLINE_DAY + 1 and now.hour == DEADLINE_HOUR and now.minute == DEADLINE_MINUTE:
         ans = exec_distribution_wrapper(blacklist, QUANTITY_OF_TASKS,  RANDOM_SEED)
         asyncio.run(simulate_and_notify_all_users(ans))
     return
 
+async def time_correct_work_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    now = datetime.now(pytz.timezone('Europe/Moscow'))
+    print(now.weekday, now.hour, now.minute)
+    await update.message.reply_text(f"Сейчас {now.hour} часов и {now.minute} минут")
+    return ConversationHandler.END
 # Шаг 1: Команда /update_settings, бот просит отправить файл
 async def update_settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -457,8 +468,9 @@ def main() -> None:
     app.add_handler(CommandHandler("exec_distr", execute_tasks))  # Команда для выполнения задач администратором
     app.add_handler(CommandHandler("exec_archive", execute_archive))  # Команда для выполнения задач администратором
     app.add_handler(CommandHandler("help", help_command))  # Команда помощи
-    app.add_handler(CommandHandler("admin_help", admin_help_command))  # Команда помощи
+    app.add_handler(CommandHandler("admin_help", admin_help_command))  # Команда помощи панели админа
     app.add_handler(CommandHandler("send_info", send_info_file))
+    app.add_handler(CommandHandler("time", time_correct_work_check)) # Проверка времени
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages))  # Хендлер для всех сообщений
     # хендлер для изменения настроек
     app.add_handler(update_settings_handler)
