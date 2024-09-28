@@ -365,8 +365,9 @@ async def simulate_and_notify_all_users(ans):
 
 def check_and_execute_distribution():
     now = datetime.now(pytz.timezone('Europe/Moscow'))
-    print(now.weekday, now.hour, now.minute)
-    if now.weekday() == DEADLINE_DAY + 1 and now.hour == DEADLINE_HOUR and now.minute == DEADLINE_MINUTE:
+    print(now.weekday(), now.hour, now.minute)
+    print(DEADLINE_DAY - 1, DEADLINE_HOUR, DEADLINE_MINUTE)
+    if now.weekday() == DEADLINE_DAY -1  and now.hour == DEADLINE_HOUR and now.minute == DEADLINE_MINUTE:
         ans = exec_distribution_wrapper(blacklist, QUANTITY_OF_TASKS,  RANDOM_SEED)
         asyncio.run(simulate_and_notify_all_users(ans))
     return
