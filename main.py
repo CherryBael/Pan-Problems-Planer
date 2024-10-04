@@ -27,19 +27,24 @@ USERS_FILE = 'users.json'
 SETTINGS_FILE = 'settings.json'
 STATE_FILE = 'state.json'
 # Константы
-AWAITING_NAME, AWAITING_TASKS, AWAITING_PASSWORD = range(3)
+AWAITING_NAME, AWAITING_TASKS = range(2)
 AWAITING_FILE = range(1)
 
-# Константы, которые будут загружены из файла
+
 QUANTITY_OF_PREFS = 0
 QUANTITY_OF_TASKS = 0
 RANDOM_SEED = 0
 blacklist = []
 ADMINS = []
+# Константы дедлайна подачи заявок
 # DEADLINE_DAY -- 1 понедельник, итд
 DEADLINE_DAY = 0
 DEADLINE_HOUR = 0
 DEADLINE_MINUTE = 0
+# Константы времени архивирования данных
+CLEANUP_DAY = 0
+CLEANUP_HOUR = 0
+CLEANUP_MINUTE = 0
 # Флаги
 POST_EXEC_STATE = False
 
@@ -53,6 +58,9 @@ def load_settings():
         QUANTITY_OF_PREFS = settings_data['QUANTITY_OF_PREFS']
         QUANTITY_OF_TASKS = settings_data['QUANTITY_OF_TASKS']
         RANDOM_SEED = settings_data['RANDOM_SEED']
+        CLEANUP_DAY = settings_data['CLEANUP_DAY']
+        CLEANUP_HOUR = settings_data['CLEANUP_HOUR']
+        CLEANUP_MINUTE = settings_data['CLEANUP_MINUTE']
         DEADLINE_DAY = settings_data['DEADLINE_DAY']
         DEADLINE_HOUR = settings_data['DEADLINE_HOUR']
         DEADLINE_MINUTE = settings_data['DEADLINE_MINUTE']
@@ -260,9 +268,8 @@ def archive_tasks():
 # Обертка для архивирования задач с проверкой времени
 def archive_tasks_wrapper():
     now = datetime.now(pytz.timezone('Europe/Moscow'))
-    if now.weekday() == 2 and now.hour == 0 and now.minute == 0:  # Среда в полночь
+    if now.weekday() == CLEANUP_DAY and now.hour == CLEANUP_HOUR and now.minute == CLEANUP_MINUTE:  # Среда в полночь
         archive_tasks()
-
 
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = str(update.effective_user.id)
@@ -365,8 +372,6 @@ async def simulate_and_notify_all_users(ans):
 
 def check_and_execute_distribution():
     now = datetime.now(pytz.timezone('Europe/Moscow'))
-    print(now.weekday(), now.hour, now.minute)
-    print(DEADLINE_DAY - 1, DEADLINE_HOUR, DEADLINE_MINUTE)
     if now.weekday() == DEADLINE_DAY -1  and now.hour == DEADLINE_HOUR and now.minute == DEADLINE_MINUTE:
         ans = exec_distribution_wrapper(blacklist, QUANTITY_OF_TASKS,  RANDOM_SEED)
         asyncio.run(simulate_and_notify_all_users(ans))
