@@ -237,10 +237,12 @@ async def receive_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Бот для распределения задач по Макро 2 группы ПАН\n"
                                      "Введите /start для регистрации пользователя,/tasks для отправки задач, /check для проверки того, заявки на какие задачи система зачла, /send_info, чтобы получить файл с паарметрами для сверки результатов распределения")
+    return ConversationHandler.END
+# Команда для получения справки по админ панели                                     
 async def admin_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Помощь по админ панели\n"
                                     "Введите /exec_distr для немедленного распределения задач, /exec_archive для сброса всех заявок на задачи, /update_settings для обновления файла настроек")
-                                    
+    return ConversationHandler.END                                  
 # Команда для проверки задач пользователя
 async def check_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_data = context.user_data
@@ -271,18 +273,6 @@ def archive_tasks_wrapper():
     if now.weekday() == CLEANUP_DAY and now.hour == CLEANUP_HOUR and now.minute == CLEANUP_MINUTE:  # Среда в полночь
         archive_tasks()
 
-async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_id = str(update.effective_user.id)
-    # Проверить, есть ли пользователь в списке администраторов
-    if user_id in ADMINS:
-        context.user_data[user_id] = {'is_admin': True}  # Устанавливаем статус администратора
-        await update.message.reply_text("Вы авторизованы как администратор.")
-        return ConversationHandler.END
-    
-    # Если не администратор, запросить пароль для доступа
-    await update.message.reply_text("К сожалению (или счастью), вы не админ")
-    return ConversationHandler.END
-
 # Хендлер для всех сообщений
 async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     print(f"Обрабатываем сообщение: '{update.message.text}' в состоянии {context.user_data.get('state', 'None')}")  # Debug
@@ -296,7 +286,7 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def execute_archive(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    if user_id not in context.user_data or not context.user_data[user_id].get('is_admin'):
+    if user_id not in ADMINS:
         await update.message.reply_text("У вас нет прав доступа для выполнения этой команды.")
         return
     archive_tasks()
@@ -339,7 +329,7 @@ def exec_distribution_wrapper(blacklist, quantity_of_tasks, random_seed):
 # Команда для выполнения задач
 async def execute_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    if user_id not in context.user_data or not context.user_data[user_id].get('is_admin'):
+    if user_id not in ADMINS:
         await update.message.reply_text("У вас нет прав доступа для выполнения этой команды.")
         return
 
@@ -382,12 +372,13 @@ async def time_correct_work_check(update: Update, context: ContextTypes.DEFAULT_
     print(now.weekday, now.hour, now.minute)
     await update.message.reply_text(f"Сейчас {now.hour} часов и {now.minute} минут")
     return ConversationHandler.END
-# Шаг 1: Команда /update_settings, бот просит отправить файл
+
+# Команда изменения файла настроек
 async def update_settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
 
     # Проверяем, что пользователь является администратором
-    if user_id not in context.user_data or not context.user_data.get(user_id, {}).get('is_admin'):
+    if user_id not in ADMINS:
         await update.message.reply_text("У вас нет прав администратора для выполнения этой команды.")
         return ConversationHandler.END
 
@@ -397,7 +388,7 @@ async def update_settings_command(update: Update, context: ContextTypes.DEFAULT_
     # Переходим в состояние ожидания файла
     return AWAITING_FILE
 
-# Шаг 2: Прием и обработка файла settings.json
+# Прием файла
 async def receive_settings_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     document = update.message.document
 
@@ -426,7 +417,7 @@ async def receive_settings_file(update: Update, context: ContextTypes.DEFAULT_TY
     load_settings()
     return ConversationHandler.END
 
-# Шаг 3: Обработка отмены
+# Обработка отмены
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Операция отменена.")
     return ConversationHandler.END
@@ -437,7 +428,7 @@ def background_tasks():
         print("Running background tasks...")
         archive_tasks_wrapper()
         check_and_execute_distribution()
-        time.sleep(60)  # Проверяем раз в 10 секунд
+        time.sleep(60)  # Проверяем раз в 60 секунд
 
 
 def main() -> None:
@@ -470,13 +461,12 @@ def main() -> None:
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("tasks", tasks_command))  # Команда для отправки задач
     app.add_handler(CommandHandler("check", check_tasks))  # Команда для проверки задач
-    app.add_handler(CommandHandler("admin", admin_command))  # Команда для администрирования
-    app.add_handler(CommandHandler("exec_distr", execute_tasks))  # Команда для выполнения задач администратором
-    app.add_handler(CommandHandler("exec_archive", execute_archive))  # Команда для выполнения задач администратором
+    app.add_handler(CommandHandler("exec_distr", execute_tasks))  # Команда для немедленного распределения задач (требует админ права)
+    app.add_handler(CommandHandler("exec_archive", execute_archive))  # Команда для немедленной очистки присланных задач (требует админ права)
     app.add_handler(CommandHandler("help", help_command))  # Команда помощи
     app.add_handler(CommandHandler("admin_help", admin_help_command))  # Команда помощи панели админа
-    app.add_handler(CommandHandler("send_info", send_info_file))
-    app.add_handler(CommandHandler("time", time_correct_work_check)) # Проверка времени
+    app.add_handler(CommandHandler("send_info", send_info_file)) # Отправялет файл с информацией о распределенных задачах
+    app.add_handler(CommandHandler("time", time_correct_work_check)) # Выводит время
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages))  # Хендлер для всех сообщений
     # хендлер для изменения настроек
     app.add_handler(update_settings_handler)
