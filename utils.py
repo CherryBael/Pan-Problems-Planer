@@ -64,3 +64,8 @@ def generate_entry(inp_entries):
     with open(inp_entries, 'r') as file:
         entry = json.load(file)
         return entry
+
+# Функция отображает массив призвольных чисел длины N в массив чисел от 1 до N включительно
+# Возвразает словарь с ключами -- старыми номерами, значениями -- отображенными
+def map_tasks(tasks):
+    return {x:i for i,x in enumerate(tasks)}

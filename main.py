@@ -32,10 +32,10 @@ AWAITING_FILE = range(1)
 
 
 QUANTITY_OF_PREFS = 0
-QUANTITY_OF_TASKS = 0
 RANDOM_SEED = 0
-blacklist = []
+BLACKLIST = []
 ADMINS = []
+TASKS = []
 # Константы дедлайна подачи заявок
 # DEADLINE_DAY -- 1 понедельник, итд
 DEADLINE_DAY = 0
@@ -50,13 +50,12 @@ POST_EXEC_STATE = False
 
 # Функция для распаковки настроек
 def load_settings():
-    global QUANTITY_OF_PREFS, QUANTITY_OF_TASKS, RANDOM_SEED, ADMINS
-    global DEADLINE_DAY, DEADLINE_HOUR, DEADLINE_MINUTE
+    global QUANTITY_OF_PREFS, RANDOM_SEED, ADMINS, TASKS
+    global DEADLINE_DAY, DEADLINE_HOUR, DEADLINE_MINUTE, CLEANUP_DAY, CLEANUP_HOUR, CLEANUP_MINUTE
     try:
         with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
             settings_data = json.load(f)
         QUANTITY_OF_PREFS = settings_data['QUANTITY_OF_PREFS']
-        QUANTITY_OF_TASKS = settings_data['QUANTITY_OF_TASKS']
         RANDOM_SEED = settings_data['RANDOM_SEED']
         CLEANUP_DAY = settings_data['CLEANUP_DAY']
         CLEANUP_HOUR = settings_data['CLEANUP_HOUR']
@@ -64,7 +63,7 @@ def load_settings():
         DEADLINE_DAY = settings_data['DEADLINE_DAY']
         DEADLINE_HOUR = settings_data['DEADLINE_HOUR']
         DEADLINE_MINUTE = settings_data['DEADLINE_MINUTE']
-        ADMINS = settings_data['admins']
+        ADMINS = settings_data['ADMINS']
         print("Настройки успешно загружены.")
     
     except FileNotFoundError:
@@ -73,20 +72,20 @@ def load_settings():
         print("Ошибка при чтении файла настроек. Некорректный формат JSON.")
 
 def load_state():
-    global blacklist
+    global BLACKLIST
     global POST_EXEC_STATE
 
     try:
         with open(STATE_FILE, 'r', encoding='utf-8') as f:
             settings_data = json.load(f)
 
-        blacklist = settings_data['blacklist']
+        BLACKLIST = settings_data['BLACKLIST']
         POST_EXEC_STATE = settings_data['POST_EXEC_STATE']
 
         print("Состояние успешно загружено.")
     
     except FileNotFoundError:
-        blacklist = []
+        BLACKLIST = []
         POST_EXEC_STATE = False
         save_state()
         print(f"Файл {STATE_FILE} не найден, будет сгенерирован стандартный")
@@ -94,11 +93,11 @@ def load_state():
         print("Ошибка при чтении файла настроек. Некорректный формат JSON.")
 
 def save_state():
-    global blacklist, POST_EXEC_STATE
+    global BLACKLIST, POST_EXEC_STATE
 
     # Формируем данные для сохранения
     state_data = {
-        'blacklist': blacklist,
+        'BLACKLIST': BLACKLIST,
         'POST_EXEC_STATE': POST_EXEC_STATE
     }
 
@@ -191,6 +190,7 @@ async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     print(f"Пользователь {user_data['full_name']} вводит задачи")  # Debug
     await update.message.reply_text("Введите номера 5 наиболее приоритетных задач через пробел.")
+    await update.message.reply_text(f"Доступные номера задач:{", ".join(map(str, TASKS))}")
     
     # Устанавливаем состояние ожидания задач
     context.user_data['state'] = AWAITING_TASKS
@@ -204,12 +204,13 @@ async def receive_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     print(f"Получены задачи: {tasks} от пользователя {user_data['full_name']}")  # Debug
 
     try:
+        str_tasks = ", ".join(map(str, TASKS))
         # Преобразуем в список целых чисел и проверяем условия
         task_numbers = [int(task.strip()) for task in tasks]
-        if (any(task < 1 or task > QUANTITY_OF_TASKS for task in task_numbers) or 
-            len(task_numbers) != QUANTITY_OF_PREFS or 
+        if (any(task not in TASKS for task in task_numbers) or 
+            len(task_numbers) != QUANTITY_OF_PREFS or  # Проверка на соответствие заданному количеству
             len(set(task_numbers)) != len(task_numbers)):  # Проверка на уникальность
-            await update.message.reply_text(f"Пожалуйста, введите ровно {QUANTITY_OF_PREFS} уникальных целых чисел от 1 до {QUANTITY_OF_TASKS}.")
+            await update.message.reply_text(f"Пожалуйста, введите ровно {QUANTITY_OF_PREFS} уникальных целых чисел из следующего списка {str_tasks}.")
             return AWAITING_TASKS
 
         user_data['task_numbers'] = task_numbers
@@ -227,7 +228,7 @@ async def receive_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     print(f"Задачи сохранены для пользователя {full_name}: {user_data['task_numbers']}")  # Debug
 
     # Подтверждаем введенные задачи
-    await update.message.reply_text(f"Вы ввели следующие номера задач: {', '.join(map(str, user_data['task_numbers']))}.")
+    await update.message.reply_text(f"Записаны следующие номера задач: {', '.join(map(str, user_data['task_numbers']))}.")
     
     # Сбрасываем состояние после выполнения команды
     context.user_data['state'] = None
@@ -241,7 +242,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 # Команда для получения справки по админ панели                                     
 async def admin_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Помощь по админ панели\n"
-                                    "Введите /exec_distr для немедленного распределения задач, /exec_archive для сброса всех заявок на задачи, /update_settings для обновления файла настроек")
+                                    "Введите /exec_distr для немедленного распределения задач, /exec_cleanup для сброса всех заявок на задачи, /update_settings для обновления файла настроек")
     return ConversationHandler.END                                  
 # Команда для проверки задач пользователя
 async def check_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -334,7 +335,7 @@ async def execute_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Вызов обертки для выполнения распределения задач
-    ans = exec_distribution_wrapper(blacklist, QUANTITY_OF_TASKS, RANDOM_SEED)
+    ans = exec_distribution_wrapper(BLACKLIST, QUANTITY_OF_TASKS, RANDOM_SEED)
     # Форматируем сообщение для пользователей
     ans_message = "\n".join([f"{name}: {', '.join(map(str, tasks))}" for name, tasks in ans.items()])
     
@@ -363,7 +364,7 @@ async def simulate_and_notify_all_users(ans):
 def check_and_execute_distribution():
     now = datetime.now(pytz.timezone('Europe/Moscow'))
     if now.weekday() == DEADLINE_DAY -1  and now.hour == DEADLINE_HOUR and now.minute == DEADLINE_MINUTE:
-        ans = exec_distribution_wrapper(blacklist, QUANTITY_OF_TASKS,  RANDOM_SEED)
+        ans = exec_distribution_wrapper(BLACKLIST, QUANTITY_OF_TASKS,  RANDOM_SEED)
         asyncio.run(simulate_and_notify_all_users(ans))
     return
 
@@ -462,7 +463,7 @@ def main() -> None:
     app.add_handler(CommandHandler("tasks", tasks_command))  # Команда для отправки задач
     app.add_handler(CommandHandler("check", check_tasks))  # Команда для проверки задач
     app.add_handler(CommandHandler("exec_distr", execute_tasks))  # Команда для немедленного распределения задач (требует админ права)
-    app.add_handler(CommandHandler("exec_archive", execute_archive))  # Команда для немедленной очистки присланных задач (требует админ права)
+    app.add_handler(CommandHandler("exec_cleanup", execute_archive))  # Команда для немедленной очистки присланных задач (требует админ права)
     app.add_handler(CommandHandler("help", help_command))  # Команда помощи
     app.add_handler(CommandHandler("admin_help", admin_help_command))  # Команда помощи панели админа
     app.add_handler(CommandHandler("send_info", send_info_file)) # Отправялет файл с информацией о распределенных задачах

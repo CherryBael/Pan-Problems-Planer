@@ -1,5 +1,5 @@
 from random import shuffle, seed, random
-from utils import list_min_values
+from utils import list_min_values, map_tasks
 # Словарь оценок в формате: Имя -- количество баллов
 marks = {}
 # Словарь предпочтений в формате: Имя -- отсортированный по убыванию предпочтений массив номеров задач
@@ -21,27 +21,32 @@ class Planner:
             assert(type(marks[x]) == int)
             assert(len(preferences[x]) == self.pref_len)
         self.marks = marks
-        self.preferences = preferences
+        # словарь отображения задач
+        self.mapping = map_tasks(preferences)
+        # словарь обратного отображения задач
+        self.unmapping = {y:x for x,y in self.mapping.items()}
+        # Отображаем номера задач из предпочтений
+        self.mapped_preferences = {x:self.mapping[y] for x,y in preferences.items()}
         self.blacklist = blacklist
         self.problems_quantity = problems_quantity
-    # Возвращает массив имен, который отображает порядок распределения задач (все люди из self.blacklist исключаются)
+
     def calculate_order(self, marks):
-        #order = [x for x in sorted(self.preferences.keys(), key = lambda y: marks[y]) if x not in self.blacklist]
         # Когда задаем порядок, то для равных по оценкам людей сортируем в случайном порядке
-        order = [x for x in sorted(self.preferences.keys(), key = lambda y: (marks[y], random())) if x not in self.blacklist]
+        order = [x for x in sorted(self.mapped_preferences.keys(), key = lambda y: (marks[y], random())) if x not in self.blacklist]
         return order
     # Возвращает словарь распределенных задач для одного прохода по списку людей в формате: Имя -- номер задачи
     def iterate_order(self, marks, unselected):
         order = self.calculate_order(marks)
         # Массив с количеством людей, поставивших задачу в приоритетные среди всех оставшихся людей
         # Нужен для определения задач, которые имеются в приоритете среди еще не проверенных людей
+
         problem_prefs = {i:0 for i in range(1, self.problems_quantity + 1)}
         # Новые оценки из предположения, что человек, которому выдали задачу, получит за нее балл
         new_marks = marks
         # Вычисляем начальное состояние этого массива
         for x in order:
             for j in range(self.pref_len):
-                problem_prefs[self.preferences[x][j]] += 1
+                problem_prefs[self.mapped_preferences[x][j]] += 1
         # Словарь распределения задач в формате: Имя -- номер задачи
         distribution = {}
         # Считаем задачи
@@ -51,15 +56,15 @@ class Planner:
                 break
             fl = False
             for j in range(self.pref_len):
-                if self.preferences[x][j] in unselected:
-                    distribution[x] = self.preferences[x][j]
+                if self.mapped_preferences[x][j] in unselected:
+                    distribution[x] = self.mapped_preferences[x][j]
                     new_marks[x] += 1
-                    unselected.remove(self.preferences[x][j])
+                    unselected.remove(self.mapped_preferences[x][j])
                     fl = True
                     break
             # Убираем его голоса из массива приоритетных задач
             for j in range(self.pref_len):
-                problem_prefs[self.preferences[x][j]] -= 1
+                problem_prefs[self.mapped_preferences[x][j]] -= 1
             if fl:
                 continue
             # Если не нашли задачу в приоритетах, то ищем те, которые в приоритете у как можно меньшего количества людей
@@ -77,12 +82,13 @@ class Planner:
         unselected = set([i for i in range(1, self.problems_quantity + 1)])
         marks = self.marks
         # Словарь итогового распределения вида: Имя -- массив номеров задач
-        distribution = {x:[] for x in list(self.preferences.keys())}
+        distribution = {x:[] for x in list(self.mapped_preferences.keys())}
         while len(unselected) != 0:
             tmpdistr,marks,unselected = self.iterate_order(marks, unselected)
             for x in list(tmpdistr.keys()):
                 distribution[x].append(tmpdistr[x])
-        return distribution
+        # Возвращаем отображенные обратно номера задач
+        return {x: [self.unmapping[z] for z in y] for x,y in distribution.items()}
 
 
             
