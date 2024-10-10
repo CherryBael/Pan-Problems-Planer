@@ -10,23 +10,28 @@ blacklist = []
 problems_quantity = 0
 
 class Planner:
-    def __init__(self, marks, preferences, blacklist, problems_quantity, rand_seed):
+    def __init__(self, marks, preferences, blacklist, initial_numbers, rand_seed):
         # Задаем сид генерации для воспроизводимости результатов рандомайзера
         # Нужно, чтобы каждый у себя на машине мог убедиться, что код на сервере отработал честно 
         seed(rand_seed)
         # Длина списка предпочтений
         self.pref_len = len(list(preferences.values())[0])
+        # количество задач
+        problems_quantity = len(initial_numbers)
         # Проверяем корректность данных
         for x in list(preferences.keys()):
             assert(type(marks[x]) == int)
             assert(len(preferences[x]) == self.pref_len)
         self.marks = marks
         # словарь отображения задач
-        self.mapping = map_tasks(preferences)
+        self.mapping_inside = map_tasks(initial_numbers)
         # словарь обратного отображения задач
-        self.unmapping = {y:x for x,y in self.mapping.items()}
+        self.mapping_outside = {y:x for x,y in self.mapping_inside.items()}
         # Отображаем номера задач из предпочтений
-        self.mapped_preferences = {x:self.mapping[y] for x,y in preferences.items()}
+        print("------------------------")
+        print(self.mapping_inside)
+        self.mapped_preferences = {x:[self.mapping_inside[z] for z in y] for x,y in preferences.items()}
+        print(self.mapped_preferences)
         self.blacklist = blacklist
         self.problems_quantity = problems_quantity
 
@@ -88,7 +93,7 @@ class Planner:
             for x in list(tmpdistr.keys()):
                 distribution[x].append(tmpdistr[x])
         # Возвращаем отображенные обратно номера задач
-        return {x: [self.unmapping[z] for z in y] for x,y in distribution.items()}
+        return {x: [self.mapping_outside[z] for z in y] for x,y in distribution.items()}
 
 
             

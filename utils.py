@@ -68,4 +68,4 @@ def generate_entry(inp_entries):
 # Функция отображает массив призвольных чисел длины N в массив чисел от 1 до N включительно
 # Возвразает словарь с ключами -- старыми номерами, значениями -- отображенными
 def map_tasks(tasks):
-    return {x:i for i,x in enumerate(tasks)}
+    return {x:i+1 for i,x in enumerate(tasks)}

@@ -32,6 +32,7 @@ AWAITING_FILE = range(1)
 
 
 QUANTITY_OF_PREFS = 0
+QUANTITY_OF_TASKS = 0
 RANDOM_SEED = 0
 BLACKLIST = []
 ADMINS = []
@@ -64,13 +65,14 @@ def load_settings():
         DEADLINE_HOUR = settings_data['DEADLINE_HOUR']
         DEADLINE_MINUTE = settings_data['DEADLINE_MINUTE']
         ADMINS = settings_data['ADMINS']
+        TASKS = settings_data['TASKS']
         print("Настройки успешно загружены.")
     
     except FileNotFoundError:
         print(f"Файл {SETTINGS_FILE} не найден.")
     except json.JSONDecodeError:
         print("Ошибка при чтении файла настроек. Некорректный формат JSON.")
-
+    QUANTITY_OF_TASKS = len(TASKS)
 def load_state():
     global BLACKLIST
     global POST_EXEC_STATE
@@ -309,9 +311,9 @@ async def send_info_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 # Обертка над exec_distribution
 # Обертка для выполнения распределения задач и сохранения данных
 # Обертка для выполнения распределения задач и сохранения данных
-def exec_distribution_wrapper(blacklist, quantity_of_tasks, random_seed):
+def exec_distribution_wrapper(blacklist, problem_numbers, random_seed):
     # Вызов функции exec_distribution
-    ans, marks, preferences, blacklist, rand_seed = exec_distribution(blacklist, quantity_of_tasks, random_seed)
+    ans, marks, preferences, blacklist, rand_seed = exec_distribution(blacklist, problem_numbers, random_seed)
     global POST_EXEC_STATE
     POST_EXEC_STATE = True
     # Сохранение данных в файл info.json
@@ -335,7 +337,7 @@ async def execute_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Вызов обертки для выполнения распределения задач
-    ans = exec_distribution_wrapper(BLACKLIST, QUANTITY_OF_TASKS, RANDOM_SEED)
+    ans = exec_distribution_wrapper(BLACKLIST, TASKS, RANDOM_SEED)
     # Форматируем сообщение для пользователей
     ans_message = "\n".join([f"{name}: {', '.join(map(str, tasks))}" for name, tasks in ans.items()])
     
@@ -364,7 +366,7 @@ async def simulate_and_notify_all_users(ans):
 def check_and_execute_distribution():
     now = datetime.now(pytz.timezone('Europe/Moscow'))
     if now.weekday() == DEADLINE_DAY -1  and now.hour == DEADLINE_HOUR and now.minute == DEADLINE_MINUTE:
-        ans = exec_distribution_wrapper(BLACKLIST, QUANTITY_OF_TASKS,  RANDOM_SEED)
+        ans = exec_distribution_wrapper(BLACKLIST, TASKS,  RANDOM_SEED)
         asyncio.run(simulate_and_notify_all_users(ans))
     return
 
