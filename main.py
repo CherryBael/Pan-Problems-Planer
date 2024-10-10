@@ -230,7 +230,7 @@ async def receive_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     print(f"Задачи сохранены для пользователя {full_name}: {user_data['task_numbers']}")  # Debug
 
     # Подтверждаем введенные задачи
-    await update.message.reply_text(f"Записаны следующие номера задач: {', '.join(map(str, user_data['task_numbers']))}.")
+    await update.message.reply_text(f"Теперь вы записаны на следующие задачи: {', '.join(map(str, user_data['task_numbers']))}.")
     
     # Сбрасываем состояние после выполнения команды
     context.user_data['state'] = None
@@ -239,7 +239,7 @@ async def receive_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 # Команда для получения справки
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Бот для распределения задач по Макро 2 группы ПАН\n"
-                                     "Введите /start для регистрации пользователя,/tasks для отправки задач, /check для проверки того, заявки на какие задачи система зачла, /send_info, чтобы получить файл с паарметрами для сверки результатов распределения")
+                                     "Введите /start для регистрации пользователя,/tasks для отправки задач, /check для проверки того, заявки на какие задачи система зачла.")
     return ConversationHandler.END
 # Команда для получения справки по админ панели                                     
 async def admin_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -275,6 +275,7 @@ def archive_tasks_wrapper():
     now = datetime.now(pytz.timezone('Europe/Moscow'))
     if now.weekday() == CLEANUP_DAY and now.hour == CLEANUP_HOUR and now.minute == CLEANUP_MINUTE:  # Среда в полночь
         archive_tasks()
+        asyncio.run(simulate_and_notify_all_users("Начинается прием заявок на задачи следующей недели"))
 
 # Хендлер для всех сообщений
 async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -293,19 +294,8 @@ async def execute_archive(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("У вас нет прав доступа для выполнения этой команды.")
         return
     archive_tasks()
-    await update.message.reply_text("Архивирование успешно выполнено")
-
-# Функция для отправки файла info.json
-async def send_info_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if POST_EXEC_STATE == True:
-        # Проверяем, существует ли файл info.json
-        if os.path.exists('info.json'):
-            with open('info.json', 'rb') as file:
-                await update.message.reply_document(file, caption="Вот файл с информацией о распределении задач.")
-        else:
-            await update.message.reply_text("Файл info.json не найден.")
-    else:
-        await update.message.reply_text("Распределения задач еще не было.")
+    await update.message.reply_text("Сброс задач успешно выполнен")
+    await notify_all_users(update, context, "Начинается прием заявок на задачи следующей недели")
 
 # Новые функции
 # Обертка над exec_distribution
@@ -345,21 +335,43 @@ async def execute_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users_data = load_data(USERS_FILE)
     for user_id in users_data.keys():
         await context.bot.send_message(chat_id=user_id, text=f"Распределение задач завершено:\n{ans_message}")
-
+        if os.path.exists('info.json'):
+            with open('info.json', 'rb') as file:
+                await update.message.reply_document(file, caption="Файл с информацией по распределению задач")
+        else:
+            await update.message.reply_text("Файл info.json не найден.")
     await update.message.reply_text("Задачи успешно распределены.")
 
+
+async def notify_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE, message):
+    users_data = load_data('users.json')
+    for user_id in users_data.keys():
+        try:
+            await context.bot.send_message(chat_id=user_id, text=f"{message}")
+        except Exception as e:
+            print(f"Не удалось отправить сообщение пользователю {user_id}: {e}")
+
 async def simulate_and_notify_all_users(ans):
-    # Создаем поддельный объект бота
     bot = Bot(token=tgtoken())
     # Загружаем данные пользователей из файла
     users_data = load_data('users.json')
-    # Создаем поддельные объекты контекста и обновления
     context = SimpleNamespace(bot=bot)
-    ans_message = "\n".join([f"{name}: {', '.join(map(str, tasks))}" for name, tasks in ans.items()])
+    if isinstance(ans, str):
+        ans_message = ans
+    else:
+        ans_message = "\n".join([f"{name}: {', '.join(map(str, tasks))}" for name, tasks in ans.items()])
     # Отправляем сообщение всем пользователям
     for user_id in users_data.keys():
         try:
-            await bot.send_message(chat_id=user_id, text=f"Распределение задач завершено:\n{ans_message}")
+            if not isinstance(ans, str):
+                await bot.send_message(chat_id=user_id, text=f"Распределение задач завершено:\n{ans_message}")
+                if os.path.exists('info.json'):
+                    with open('info.json', 'rb') as file:
+                        await update.message.reply_document(file, caption="Вот файл с информацией о распределении задач.")
+                else:
+                    await update.message.reply_text("Файл info.json не найден.")
+            else:
+                await bot.send_message(chat_id=user_id, text=f"{ans_message}")
         except Exception as e:
             print(f"Не удалось отправить сообщение пользователю {user_id}: {e}")
 
@@ -468,7 +480,7 @@ def main() -> None:
     app.add_handler(CommandHandler("exec_cleanup", execute_archive))  # Команда для немедленной очистки присланных задач (требует админ права)
     app.add_handler(CommandHandler("help", help_command))  # Команда помощи
     app.add_handler(CommandHandler("admin_help", admin_help_command))  # Команда помощи панели админа
-    app.add_handler(CommandHandler("send_info", send_info_file)) # Отправялет файл с информацией о распределенных задачах
+    #app.add_handler(CommandHandler("send_info", send_info_file)) # Отправялет файл с информацией о распределенных задачах
     app.add_handler(CommandHandler("time", time_correct_work_check)) # Выводит время
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages))  # Хендлер для всех сообщений
     # хендлер для изменения настроек
