@@ -27,7 +27,7 @@ USERS_FILE = 'users.json'
 SETTINGS_FILE = 'settings.json'
 STATE_FILE = 'state.json'
 # Константы
-AWAITING_NAME, AWAITING_TASKS = range(2)
+AWAITING_NAME, AWAITING_TASKS, AWAITING_MESSAGE = range(3)
 AWAITING_FILE = range(1)
 
 
@@ -180,6 +180,30 @@ async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     print(f"Имя пользователя сохранено: {full_name}")  # Debug
     await update.message.reply_text(f"Спасибо, {full_name}! Теперь введите /tasks, чтобы отправить номера задач.")
     return ConversationHandler.END
+# Команда для отправки сообщения всем пользователям
+async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_data = context.user_data
+    print("Запущена команда /broadcast")  # Debug
+    user_id = str(update.effective_user.id)
+    if user_id not in ADMINS:
+            await update.message.reply_text("У вас нет прав доступа для выполнения этой команды.")
+            return ConversationHandler.END
+
+    await update.message.reply_text("Введите сообщение для отправки пользователям")
+    # Устанавливаем состояние ожидания сообщения
+    context.user_data['state'] = AWAITING_MESSAGE
+    return AWAITING_MESSAGE
+
+# Получение сообщения
+async def receive_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_data = context.user_data
+    message = update.message.text
+    message = "BROADCAST MESSAGE\n\n" + message
+    await notify_all_users(update, context, message)
+    # Сбрасываем состояние после выполнения команды
+    context.user_data['state'] = None
+    return ConversationHandler.END
+    
 # Команда для отправки номеров задач
 async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_data = context.user_data
@@ -197,6 +221,7 @@ async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     # Устанавливаем состояние ожидания задач
     context.user_data['state'] = AWAITING_TASKS
     return AWAITING_TASKS  # Важно вернуть правильное состояние
+
 
 # Получение номеров задач
 async def receive_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -285,6 +310,8 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await receive_tasks(update, context)
     elif context.user_data.get('state') == AWAITING_NAME:
         await receive_name(update, context)
+    elif context.user_data.get('state') == AWAITING_MESSAGE:
+        await receive_broadcast_message(update, context)
     else:
         await update.message.reply_text("Неизвестная команда, введите /help для вывода справки.")
 
@@ -324,7 +351,7 @@ async def execute_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     if user_id not in ADMINS:
         await update.message.reply_text("У вас нет прав доступа для выполнения этой команды.")
-        return
+        return ConversationHandler.END
 
     # Вызов обертки для выполнения распределения задач
     ans = exec_distribution_wrapper(BLACKLIST, TASKS, RANDOM_SEED)
@@ -460,6 +487,7 @@ def main() -> None:
             AWAITING_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_name)],
             AWAITING_TASKS: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_tasks)],
             AWAITING_FILE: [MessageHandler(filters.Document.ALL, receive_settings_file)],
+            AWAITING_MESSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_broadcast_message)],
         },
         fallbacks=[CommandHandler("help", help_command)],
     )
@@ -476,8 +504,9 @@ def main() -> None:
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("tasks", tasks_command))  # Команда для отправки задач
     app.add_handler(CommandHandler("check", check_tasks))  # Команда для проверки задач
-    app.add_handler(CommandHandler("exec_distr", execute_tasks))  # Команда для немедленного распределения задач (требует админ права)
-    app.add_handler(CommandHandler("exec_cleanup", execute_archive))  # Команда для немедленной очистки присланных задач (требует админ права)
+    app.add_handler(CommandHandler("exec_distr", execute_tasks))  # Команда для немедленного распределения задач (требует прав адмна)
+    app.add_handler(CommandHandler("exec_cleanup", execute_archive))  # Команда для немедленной очистки присланных задач (требует прав админа)
+    app.add_handler(CommandHandler("broadcast", broadcast)) # Комманда для отправки сообщения всем пользователяи (требует прав админа)
     app.add_handler(CommandHandler("help", help_command))  # Команда помощи
     app.add_handler(CommandHandler("admin_help", admin_help_command))  # Команда помощи панели админа
     #app.add_handler(CommandHandler("send_info", send_info_file)) # Отправялет файл с информацией о распределенных задачах
