@@ -26,6 +26,7 @@ TASKS_FILE = 'tasks.json'
 USERS_FILE = 'users.json'
 SETTINGS_FILE = 'settings.json'
 STATE_FILE = 'state.json'
+NOTIF_OFF_USERS_FILE = 'notif_off_users.json'
 # Константы
 AWAITING_NAME, AWAITING_TASKS, AWAITING_MESSAGE = range(3)
 AWAITING_FILE = range(1)
@@ -37,6 +38,7 @@ RANDOM_SEED = 0
 BLACKLIST = []
 ADMINS = []
 TASKS = []
+NOTIF_OFF_USERS = []
 # Константы дедлайна подачи заявок
 # DEADLINE_DAY -- 1 понедельник, итд
 DEADLINE_DAY = 0
@@ -51,7 +53,7 @@ POST_EXEC_STATE = False
 
 # Функция для распаковки настроек
 def load_settings():
-    global QUANTITY_OF_PREFS, RANDOM_SEED, ADMINS, TASKS
+    global QUANTITY_OF_PREFS, RANDOM_SEED, ADMINS, TASKS, NOTIF_OFF_USERS
     global DEADLINE_DAY, DEADLINE_HOUR, DEADLINE_MINUTE, CLEANUP_DAY, CLEANUP_HOUR, CLEANUP_MINUTE
     try:
         with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
@@ -66,6 +68,7 @@ def load_settings():
         DEADLINE_MINUTE = settings_data['DEADLINE_MINUTE']
         ADMINS = settings_data['ADMINS']
         TASKS = settings_data['TASKS']
+        NOTIF_OFF_USERS = settings_data['NOTIF_OFF_USERS']
         print("Настройки успешно загружены.")
     
     except FileNotFoundError:
@@ -264,13 +267,27 @@ async def receive_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 # Команда для получения справки
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Бот для распределения задач по Макро 2 группы ПАН\n"
-                                     "Введите /start для регистрации пользователя,/tasks для отправки задач, /check для проверки того, заявки на какие задачи система зачла.")
+                                     "Введите /start для регистрации пользователя,/tasks для отправки задач, /check для проверки того, заявки на какие задачи система зачла, /notify_off для отключения уведомлений о неотправленных задачах, /notify_on для включения уведомлений о неотправленных задачах")
     return ConversationHandler.END
 # Команда для получения справки по админ панели                                     
 async def admin_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Помощь по админ панели\n"
-                                    "Введите /exec_distr для немедленного распределения задач, /exec_cleanup для сброса всех заявок на задачи, /update_settings для обновления файла настроек")
-    return ConversationHandler.END                                  
+                                    "Введите /exec_distr для немедленного распределения задач, /exec_cleanup для сброса всех заявок на задачи, /update_settings для обновления файла настроек, /time для выведения текущего времени, /broadcast для отправки широковещательного сообщения")
+    return ConversationHandler.END
+# Команда отключения уведомлений для пользователя
+async def notify_off(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    user_id = str(user.id)
+    NOTIF_OFF_USERS.append(user_id)
+    await update.message.reply_text("Уведомления о неотправленых задачах отключены, чтобы повторно их включить используйте команду /notify_on\n")
+    return ConversationHandler.END
+# Команда включения уведомлений для пользователя
+async def notify_on(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    user_id = str(user.id)
+    NOTIF_OFF_USERS.remove(user_id)
+    await update.message.reply_text("Уведомления о неотправленых задачах включены\n")
+    return ConversationHandler.END                                      
 # Команда для проверки задач пользователя
 async def check_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_data = context.user_data
@@ -377,6 +394,21 @@ async def notify_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE, m
             await context.bot.send_message(chat_id=user_id, text=f"{message}")
         except Exception as e:
             print(f"Не удалось отправить сообщение пользователю {user_id}: {e}")
+# Функция отправки уведомлений пользователям, которые не отправили задачи
+async def simulate_and_notify_unst_users(ans):
+    bot = Bot(token=tgtoken())
+    # Загружаем данные пользователей из файла
+    users_data = load_data('users.json')
+    st_users = load_data('tasks').keys()
+    users_ids = [x for x in users_data.keys() if x not in st_users and x not in NOTIF_OFF_USERS]
+    context = SimpleNamespace(bot=bot)
+    # Отправляем сообщение пользователям
+    message = ans + "\nОтключить уведомления можно командой /notify_off"
+    for user_id in users_ids:
+        try:
+            await context.bot.send_message(chat_id=user_id, text=f"{message}")
+        except Exception as e:
+            print(f"Не удалось отправить сообщение пользователю {user_id}: {e}")
 
 async def simulate_and_notify_all_users(ans):
     bot = Bot(token=tgtoken())
@@ -394,7 +426,7 @@ async def simulate_and_notify_all_users(ans):
                 await bot.send_message(chat_id=user_id, text=f"Распределение задач завершено:\n{ans_message}")
                 if os.path.exists('info.json'):
                     with open('info.json', 'rb') as file:
-                        await update.message.reply_document(file, caption="Вот файл с информацией о распределении задач.")
+                        await update.message.reply_document(file, caption="Файл с информацией о распредлении задач")
                 else:
                     await update.message.reply_text("Файл info.json не найден.")
             else:
@@ -408,7 +440,13 @@ def check_and_execute_distribution():
         ans = exec_distribution_wrapper(BLACKLIST, TASKS,  RANDOM_SEED)
         asyncio.run(simulate_and_notify_all_users(ans))
     return
-
+def check_and_notify():
+    now = datetime.now(pytz.timezone('Europe/Moscow'))
+    if now.weekday() == DEADLINE_DAY -1  and now.hour == DEADLINE_HOUR - 1 and now.minute == DEADLINE_MINUTE:
+        asyncio.run(simulate_and_notify_unst_users("Напоминаю, что вы не отправили задачи, а до дедлайна остался час, отправить задачи можно командой /tasks"))
+    elif now.weekday() == DEADLINE_DAY -1  and now.hour == DEADLINE_HOUR - 12 and now.minute == DEADLINE_MINUTE or now.weekday() == DEADLINE_DAY -2  and now.hour == DEADLINE_HOUR + 12 and now.minute == DEADLINE_MINUTE:
+        asyncio.run(simulate_and_notify_unst_users("Напоминаю, что вы не отправили задачи, а до дедлайна осталось 12 часов, отправить задачи можно командой /tasks"))
+    return
 async def time_correct_work_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = datetime.now(pytz.timezone('Europe/Moscow'))
     print(now.weekday, now.hour, now.minute)
@@ -470,6 +508,7 @@ def background_tasks():
         print("Running background tasks...")
         archive_tasks_wrapper()
         check_and_execute_distribution()
+        check_and_notify()
         time.sleep(60)  # Проверяем раз в 60 секунд
 
 
@@ -511,6 +550,8 @@ def main() -> None:
     app.add_handler(CommandHandler("admin_help", admin_help_command))  # Команда помощи панели админа
     #app.add_handler(CommandHandler("send_info", send_info_file)) # Отправялет файл с информацией о распределенных задачах
     app.add_handler(CommandHandler("time", time_correct_work_check)) # Выводит время
+    app.add_handler(CommandHandler("notify_off", notify_off)) # Отключает уведолмения о неоптравленных задачах
+    app.add_handler(CommandHandler("notify_on", notify_on)) # Включает уведолмения о неоптравленных задачах
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages))  # Хендлер для всех сообщений
     # хендлер для изменения настроек
     app.add_handler(update_settings_handler)
