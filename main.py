@@ -35,6 +35,7 @@ AWAITING_FILE = range(1)
 QUANTITY_OF_PREFS = 0
 QUANTITY_OF_TASKS = 0
 RANDOM_SEED = 0
+SHEET_URL = ""
 BLACKLIST = []
 ADMINS = []
 TASKS = []
@@ -53,13 +54,14 @@ POST_EXEC_STATE = False
 
 # Функция для распаковки настроек
 def load_settings():
-    global QUANTITY_OF_PREFS, RANDOM_SEED, ADMINS, TASKS, NOTIF_OFF_USERS
+    global QUANTITY_OF_PREFS, RANDOM_SEED, ADMINS, TASKS, SHEET_URL
     global DEADLINE_DAY, DEADLINE_HOUR, DEADLINE_MINUTE, CLEANUP_DAY, CLEANUP_HOUR, CLEANUP_MINUTE
     try:
         with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
             settings_data = json.load(f)
         QUANTITY_OF_PREFS = settings_data['QUANTITY_OF_PREFS']
         RANDOM_SEED = settings_data['RANDOM_SEED']
+        SHEET_URL = settings_data['SHEET_URL']
         CLEANUP_DAY = settings_data['CLEANUP_DAY']
         CLEANUP_HOUR = settings_data['CLEANUP_HOUR']
         CLEANUP_MINUTE = settings_data['CLEANUP_MINUTE']
@@ -68,7 +70,6 @@ def load_settings():
         DEADLINE_MINUTE = settings_data['DEADLINE_MINUTE']
         ADMINS = settings_data['ADMINS']
         TASKS = settings_data['TASKS']
-        NOTIF_OFF_USERS = settings_data['NOTIF_OFF_USERS']
         print("Настройки успешно загружены.")
     
     except FileNotFoundError:
@@ -77,7 +78,7 @@ def load_settings():
         print("Ошибка при чтении файла настроек. Некорректный формат JSON.")
     QUANTITY_OF_TASKS = len(TASKS)
 def load_state():
-    global BLACKLIST
+    global BLACKLIST, NOTIF_OFF_USERS
     global POST_EXEC_STATE
 
     try:
@@ -85,6 +86,7 @@ def load_state():
             settings_data = json.load(f)
 
         BLACKLIST = settings_data['BLACKLIST']
+        NOTIF_OFF_USERS = settings_data['NOTIF_OFF_USERS']
         POST_EXEC_STATE = settings_data['POST_EXEC_STATE']
 
         print("Состояние успешно загружено.")
@@ -98,11 +100,12 @@ def load_state():
         print("Ошибка при чтении файла настроек. Некорректный формат JSON.")
 
 def save_state():
-    global BLACKLIST, POST_EXEC_STATE
+    global BLACKLIST, POST_EXEC_STATE, NOTIF_OFF_USERS
 
     # Формируем данные для сохранения
     state_data = {
         'BLACKLIST': BLACKLIST,
+        'NOTIF_OFF_USERS': NOTIF_OFF_USERS,
         'POST_EXEC_STATE': POST_EXEC_STATE
     }
 
@@ -160,7 +163,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 # Получение имени и фамилии
 async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    marks = get_marks()
+    marks = get_marks(SHEET_URL)
     user_data = context.user_data
     full_name = update.message.text
     user_id = str(update.effective_user.id)
@@ -278,14 +281,16 @@ async def admin_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def notify_off(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     user_id = str(user.id)
-    NOTIF_OFF_USERS.append(user_id)
+    if user.id not in NOTIF_OFF_USERS:
+        NOTIF_OFF_USERS.append(user_id)
     await update.message.reply_text("Уведомления о неотправленых задачах отключены, чтобы повторно их включить используйте команду /notify_on\n")
     return ConversationHandler.END
 # Команда включения уведомлений для пользователя
 async def notify_on(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     user_id = str(user.id)
-    NOTIF_OFF_USERS.remove(user_id)
+    if user.id in NOTIF_OFF_USERS:
+        NOTIF_OFF_USERS.remove(user_id)
     await update.message.reply_text("Уведомления о неотправленых задачах включены\n")
     return ConversationHandler.END                                      
 # Команда для проверки задач пользователя
@@ -347,7 +352,7 @@ async def execute_archive(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Обертка для выполнения распределения задач и сохранения данных
 def exec_distribution_wrapper(blacklist, problem_numbers, random_seed):
     # Вызов функции exec_distribution
-    ans, marks, preferences, blacklist, rand_seed = exec_distribution(blacklist, problem_numbers, random_seed)
+    ans, marks, preferences, blacklist, rand_seed = exec_distribution(blacklist, problem_numbers, random_seed, SHEET_URL)
     global POST_EXEC_STATE
     POST_EXEC_STATE = True
     # Сохранение данных в файл info.json
@@ -388,7 +393,7 @@ async def execute_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def notify_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE, message):
-    users_data = load_data('users.json')
+    users_data = load_data(USERS_FILE)
     for user_id in users_data.keys():
         try:
             await context.bot.send_message(chat_id=user_id, text=f"{message}")
@@ -398,8 +403,8 @@ async def notify_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE, m
 async def simulate_and_notify_unst_users(ans):
     bot = Bot(token=tgtoken())
     # Загружаем данные пользователей из файла
-    users_data = load_data('users.json')
-    st_users = load_data('tasks').keys()
+    users_data = load_data(USERS_FILE)
+    st_users = load_data(TASKS_FILE).keys()
     users_ids = [x for x in users_data.keys() if x not in st_users and x not in NOTIF_OFF_USERS]
     context = SimpleNamespace(bot=bot)
     # Отправляем сообщение пользователям
@@ -413,7 +418,7 @@ async def simulate_and_notify_unst_users(ans):
 async def simulate_and_notify_all_users(ans):
     bot = Bot(token=tgtoken())
     # Загружаем данные пользователей из файла
-    users_data = load_data('users.json')
+    users_data = load_data(USERS_FILE)
     context = SimpleNamespace(bot=bot)
     if isinstance(ans, str):
         ans_message = ans
@@ -444,7 +449,7 @@ def check_and_notify():
     now = datetime.now(pytz.timezone('Europe/Moscow'))
     if now.weekday() == DEADLINE_DAY -1  and now.hour == DEADLINE_HOUR - 1 and now.minute == DEADLINE_MINUTE:
         asyncio.run(simulate_and_notify_unst_users("Напоминаю, что вы не отправили задачи, а до дедлайна остался час, отправить задачи можно командой /tasks"))
-    elif now.weekday() == DEADLINE_DAY -1  and now.hour == DEADLINE_HOUR - 12 and now.minute == DEADLINE_MINUTE or now.weekday() == DEADLINE_DAY -2  and now.hour == DEADLINE_HOUR + 12 and now.minute == DEADLINE_MINUTE:
+    elif now.weekday() == (DEADLINE_DAY + 6) % 7  and now.hour == DEADLINE_HOUR - 12 and now.minute == DEADLINE_MINUTE or now.weekday() == (DEADLINE_DAY + 5) % 7  and now.hour == DEADLINE_HOUR + 12 and now.minute == DEADLINE_MINUTE:
         asyncio.run(simulate_and_notify_unst_users("Напоминаю, что вы не отправили задачи, а до дедлайна осталось 12 часов, отправить задачи можно командой /tasks"))
     return
 async def time_correct_work_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
