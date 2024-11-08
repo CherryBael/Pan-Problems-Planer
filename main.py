@@ -49,8 +49,6 @@ DEADLINE_MINUTE = 0
 CLEANUP_DAY = 0
 CLEANUP_HOUR = 0
 CLEANUP_MINUTE = 0
-# Флаги
-POST_EXEC_STATE = False
 
 # Функция для распаковки настроек
 def load_settings():
@@ -78,35 +76,26 @@ def load_settings():
         print("Ошибка при чтении файла настроек. Некорректный формат JSON.")
     QUANTITY_OF_TASKS = len(TASKS)
 def load_state():
-    global BLACKLIST, NOTIF_OFF_USERS
-    global POST_EXEC_STATE
+    global NOTIF_OFF_USERS
 
     try:
         with open(STATE_FILE, 'r', encoding='utf-8') as f:
-            settings_data = json.load(f)
-
-        BLACKLIST = settings_data['BLACKLIST']
-        NOTIF_OFF_USERS = settings_data['NOTIF_OFF_USERS']
-        POST_EXEC_STATE = settings_data['POST_EXEC_STATE']
-
-        print("Состояние успешно загружено.")
+            state_data = json.load(f)
+        NOTIF_OFF_USERS = state_data['NOTIF_OFF_USERS']
     
     except FileNotFoundError:
-        BLACKLIST = []
-        POST_EXEC_STATE = False
+        NOTIF_OFF_USERS = []
         save_state()
         print(f"Файл {STATE_FILE} не найден, будет сгенерирован стандартный")
     except json.JSONDecodeError:
         print("Ошибка при чтении файла настроек. Некорректный формат JSON.")
 
 def save_state():
-    global BLACKLIST, POST_EXEC_STATE, NOTIF_OFF_USERS
+    global NOTIF_OFF_USERS
 
     # Формируем данные для сохранения
     state_data = {
-        'BLACKLIST': BLACKLIST,
         'NOTIF_OFF_USERS': NOTIF_OFF_USERS,
-        'POST_EXEC_STATE': POST_EXEC_STATE
     }
 
     # Пишем данные в файл state.json
@@ -120,7 +109,6 @@ def save_state():
 
 def shutdown_handler(signum, frame):
     print("Завершение работы бота...")
-    save_state()  # Сохраняем состояние перед завершением
     exit(0)
 
 # Функция для сохранения данных в файл
@@ -214,11 +202,21 @@ async def receive_broadcast_message(update: Update, context: ContextTypes.DEFAUL
 async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_data = context.user_data
     print("Запущена команда /tasks")  # Debug
-
+    
     if 'full_name' not in user_data:
-        print("Ошибка: пользователь не ввел Фамилию и Имя")  # Debug
-        await update.message.reply_text("Пожалуйста, сначала введите свое имя с помощью команды /start.")
-        return ConversationHandler.END
+        # Загружаем данные о пользователях
+        users_data = load_data(USERS_FILE)
+        # Если пользователь уже существует, не запрашиваем имя
+        user = update.effective_user
+        user_id = str(user.id)
+        if user_id in users_data:
+            user_name = users_data[user_id]
+            context.user_data['full_name'] = user_name
+            user_data = context.user_data
+        else:
+            print("Ошибка: пользователь не ввел Фамилию и Имя")  # Debug
+            await update.message.reply_text("Пожалуйста, сначала введите свое имя с помощью команды /start.")
+            return ConversationHandler.END
 
     print(f"Пользователь {user_data['full_name']} вводит задачи")  # Debug
     await update.message.reply_text("Введите номера 5 наиболее приоритетных задач через пробел.")
@@ -281,16 +279,18 @@ async def admin_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def notify_off(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     user_id = str(user.id)
-    if user.id not in NOTIF_OFF_USERS:
+    if user_id not in NOTIF_OFF_USERS:
         NOTIF_OFF_USERS.append(user_id)
+        save_state()
     await update.message.reply_text("Уведомления о неотправленых задачах отключены, чтобы повторно их включить используйте команду /notify_on\n")
     return ConversationHandler.END
 # Команда включения уведомлений для пользователя
 async def notify_on(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     user_id = str(user.id)
-    if user.id in NOTIF_OFF_USERS:
+    if user_id in NOTIF_OFF_USERS:
         NOTIF_OFF_USERS.remove(user_id)
+        save_state()
     await update.message.reply_text("Уведомления о неотправленых задачах включены\n")
     return ConversationHandler.END                                      
 # Команда для проверки задач пользователя
@@ -299,9 +299,18 @@ async def check_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     full_name = user_data.get('full_name')
 
     if not full_name:
-        await update.message.reply_text("Пожалуйста, введите свое имя с помощью команды /start.")
-        return
-
+        # Загружаем данные о пользователях
+        users_data = load_data(USERS_FILE)
+        # Если пользователь уже существует, не запрашиваем имя
+        user = update.effective_user
+        user_id = str(user.id)
+        if user_id in users_data:
+            user_name = users_data[user_id]
+            context.user_data['full_name'] = user_name
+            full_name = user_data.get('full_name')
+        else:
+            await update.message.reply_text("Не могу найти вас в списке пользователей, пожалуйста, введите свое имя с помощью команды /start.")
+            return
     all_data = load_data(TASKS_FILE)
     tasks = all_data.get(full_name, "У вас нет сохраненных задач.")
     await update.message.reply_text(f"Ваши задачи: {tasks}")
@@ -313,8 +322,6 @@ def archive_tasks():
     all_data = load_data(TASKS_FILE)
     save_data(archive_filename, all_data)  # Сохраняем данные в архив
     save_data(TASKS_FILE, {})  # Обнуляем файл задач
-    global POST_EXEC_STATE
-    POST_EXEC_STATE = False
     print(f"Архив сохранен в файл: {archive_filename}")  # Debug
 
 # Обертка для архивирования задач с проверкой времени
@@ -353,8 +360,6 @@ async def execute_archive(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def exec_distribution_wrapper(blacklist, problem_numbers, random_seed):
     # Вызов функции exec_distribution
     ans, marks, preferences, blacklist, rand_seed = exec_distribution(blacklist, problem_numbers, random_seed, SHEET_URL)
-    global POST_EXEC_STATE
-    POST_EXEC_STATE = True
     # Сохранение данных в файл info.json
     info_data = {
         'preferences': preferences,
@@ -401,11 +406,18 @@ async def notify_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE, m
             print(f"Не удалось отправить сообщение пользователю {user_id}: {e}")
 # Функция отправки уведомлений пользователям, которые не отправили задачи
 async def simulate_and_notify_unst_users(ans):
+    # Получаем токен для подключения к боту
     bot = Bot(token=tgtoken())
-    # Загружаем данные пользователей из файла
+    # Получаем вектор юзеров, у которых включены уведолмения и нет задач
     users_data = load_data(USERS_FILE)
-    st_users = load_data(TASKS_FILE).keys()
-    users_ids = [x for x in users_data.keys() if x not in st_users and x not in NOTIF_OFF_USERS]
+    inverted_users = {value: key for key, value in users_data.items()}
+    users_names = set(users_data.values())
+    st_users = set(load_data(TASKS_FILE).keys())
+    users_names = users_names - st_users
+    users_ids = set([inverted_users[x] for x in users_names])
+    users_ids -= set(NOTIF_OFF_USERS)
+    users_ids = list(users_ids)
+    #print(f"Изначальное множетсво {load_data(USERS_FILE).keys()}\n Юзеры, отправившие задачи {st_users} \n Список юзеров, отлючивших уведомления {set(NOTIF_OFF_USERS)}\n Итоговое множество {users_ids}")
     context = SimpleNamespace(bot=bot)
     # Отправляем сообщение пользователям
     message = ans + "\nОтключить уведомления можно командой /notify_off"
