@@ -5,6 +5,7 @@ import os
 import asyncio
 import threading
 import time
+import random
 from datetime import datetime
 import pytz
 import signal
@@ -34,6 +35,7 @@ AWAITING_FILE = range(1)
 
 QUANTITY_OF_PREFS = 0
 QUANTITY_OF_TASKS = 0
+SUP_GRADE = 0
 RANDOM_SEED = 0
 SHEET_URL = ""
 BLACKLIST = []
@@ -52,12 +54,13 @@ CLEANUP_MINUTE = 0
 
 # Функция для распаковки настроек
 def load_settings():
-    global QUANTITY_OF_PREFS, RANDOM_SEED, ADMINS, TASKS, SHEET_URL
+    global QUANTITY_OF_PREFS, RANDOM_SEED, ADMINS, TASKS, SHEET_URL, SUP_GRADE
     global DEADLINE_DAY, DEADLINE_HOUR, DEADLINE_MINUTE, CLEANUP_DAY, CLEANUP_HOUR, CLEANUP_MINUTE
     try:
         with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
             settings_data = json.load(f)
         QUANTITY_OF_PREFS = settings_data['QUANTITY_OF_PREFS']
+        SUP_GRADE = settings_data['SUP_GRADE']
         RANDOM_SEED = settings_data['RANDOM_SEED']
         SHEET_URL = settings_data['SHEET_URL']
         CLEANUP_DAY = settings_data['CLEANUP_DAY']
@@ -67,7 +70,7 @@ def load_settings():
         DEADLINE_HOUR = settings_data['DEADLINE_HOUR']
         DEADLINE_MINUTE = settings_data['DEADLINE_MINUTE']
         ADMINS = settings_data['ADMINS']
-        TASKS = settings_data['TASKS']
+        TASKS =  list(map(str, settings_data['TASKS']))
         print("Настройки успешно загружены.")
     
     except FileNotFoundError:
@@ -236,12 +239,13 @@ async def receive_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     try:
         str_tasks = ", ".join(map(str, TASKS))
-        # Преобразуем в список целых чисел и проверяем условия
-        task_numbers = [int(task.strip()) for task in tasks]
+        task_numbers = [str(task.strip()) for task in tasks]
+        print(TASKS, task_numbers, sep = "\n")
+        print(any(task not in TASKS for task in task_numbers))
         if (any(task not in TASKS for task in task_numbers) or 
             len(task_numbers) != QUANTITY_OF_PREFS or  # Проверка на соответствие заданному количеству
             len(set(task_numbers)) != len(task_numbers)):  # Проверка на уникальность
-            await update.message.reply_text(f"Пожалуйста, введите ровно {QUANTITY_OF_PREFS} уникальных целых чисел из следующего списка {str_tasks}.")
+            await update.message.reply_text(f"Пожалуйста, введите ровно {QUANTITY_OF_PREFS} уникальных чисел из следующего списка {str_tasks}.")
             return AWAITING_TASKS
 
         user_data['task_numbers'] = task_numbers
@@ -359,7 +363,7 @@ async def execute_archive(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Обертка для выполнения распределения задач и сохранения данных
 def exec_distribution_wrapper(blacklist, problem_numbers, random_seed):
     # Вызов функции exec_distribution
-    ans, marks, preferences, blacklist, rand_seed = exec_distribution(blacklist, problem_numbers, random_seed, SHEET_URL)
+    ans, marks, preferences, blacklist, rand_seed = exec_distribution(blacklist, problem_numbers, random_seed, SHEET_URL, SUP_GRADE)
     # Сохранение данных в файл info.json
     info_data = {
         'preferences': preferences,
@@ -367,6 +371,7 @@ def exec_distribution_wrapper(blacklist, problem_numbers, random_seed):
         'blacklist': blacklist,
         'rand_seed': rand_seed,
         'quantity': QUANTITY_OF_TASKS,
+        'sup_grade': SUP_GRADE,
     }
     save_data('info.json', info_data)  # Сохраняем данные в info.json
     
@@ -428,6 +433,7 @@ async def simulate_and_notify_unst_users(ans):
             print(f"Не удалось отправить сообщение пользователю {user_id}: {e}")
 
 async def simulate_and_notify_all_users(ans):
+    print("функция уведомления юзеров только что была выполнена")
     bot = Bot(token=tgtoken())
     # Загружаем данные пользователей из файла
     users_data = load_data(USERS_FILE)
@@ -443,9 +449,11 @@ async def simulate_and_notify_all_users(ans):
                 await bot.send_message(chat_id=user_id, text=f"Распределение задач завершено:\n{ans_message}")
                 if os.path.exists('info.json'):
                     with open('info.json', 'rb') as file:
-                        await update.message.reply_document(file, caption="Файл с информацией о распредлении задач")
+                        print("вошел в нужный иф")
+                        await bot.send_document(chat_id=user_id, document=file, caption="Файл с информацией о распределении задач")
+
                 else:
-                    await update.message.reply_text("Файл info.json не найден.")
+                    await bot.send_message(chat_id=user_id, text=f"Файл info.json не найден.")
             else:
                 await bot.send_message(chat_id=user_id, text=f"{ans_message}")
         except Exception as e:
@@ -469,7 +477,20 @@ async def time_correct_work_check(update: Update, context: ContextTypes.DEFAULT_
     print(now.weekday, now.hour, now.minute)
     await update.message.reply_text(f"Сейчас {now.hour} часов и {now.minute} минут")
     return ConversationHandler.END
-
+async def goyda(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    def get_random_goida():
+        options = [
+            "Гойда !!!",
+            "Гойда, Братцы!",
+            "Слава России!",
+            "Объявляется Гойда",
+            "ГОЙДААААА",
+            "Приветствую тебя, Гойдаслав",
+            "Гойда, Гойда, Гойда!!!"
+        ]
+        return random.choice(options)
+    await update.message.reply_text(get_random_goida())
+    return ConversationHandler.END
 # Команда изменения файла настроек
 async def update_settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -558,6 +579,7 @@ def main() -> None:
 
     # Обработчики команд
     app.add_handler(conv_handler)
+    app.add_handler(CommandHandler("goyda", goyda))  # Команда для "Гойды"
     app.add_handler(CommandHandler("tasks", tasks_command))  # Команда для отправки задач
     app.add_handler(CommandHandler("check", check_tasks))  # Команда для проверки задач
     app.add_handler(CommandHandler("exec_distr", execute_tasks))  # Команда для немедленного распределения задач (требует прав адмна)

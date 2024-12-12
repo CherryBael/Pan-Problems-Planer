@@ -10,7 +10,7 @@ blacklist = []
 problems_quantity = 0
 
 class Planner:
-    def __init__(self, marks, preferences, blacklist, initial_numbers, rand_seed):
+    def __init__(self, marks, preferences, blacklist, initial_numbers, sup_grade, rand_seed):
         # Задаем сид генерации для воспроизводимости результатов рандомайзера
         # Нужно, чтобы каждый у себя на машине мог убедиться, что код на сервере отработал честно 
         seed(rand_seed)
@@ -34,10 +34,12 @@ class Planner:
         print(self.mapped_preferences)
         self.blacklist = blacklist
         self.problems_quantity = problems_quantity
-
+        self.sup_grade = sup_grade
     def calculate_order(self, marks):
         # Когда задаем порядок, то для равных по оценкам людей сортируем в случайном порядке
-        order = [x for x in sorted(self.mapped_preferences.keys(), key = lambda y: (marks[y], random())) if x not in self.blacklist]
+        order = [x for x in sorted(self.mapped_preferences.keys(), key = lambda y: (marks[y], random())) if (x not in self.blacklist and marks[x] < self.sup_grade)]
+        print(marks)
+        assert(len(order) > 0)
         return order
     # Возвращает словарь распределенных задач для одного прохода по списку людей в формате: Имя -- номер задачи
     def iterate_order(self, marks, unselected):
