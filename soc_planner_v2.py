@@ -28,17 +28,17 @@ class Planner:
         # словарь обратного отображения задач
         self.mapping_outside = {y:x for x,y in self.mapping_inside.items()}
         # Отображаем номера задач из предпочтений
-        print("------------------------")
-        print(self.mapping_inside)
+        #print("------------------------")
+        #print(self.mapping_inside)
         self.mapped_preferences = {x:[self.mapping_inside[z] for z in y] for x,y in preferences.items()}
-        print(self.mapped_preferences)
+        #print(self.mapped_preferences)
         self.blacklist = blacklist
         self.problems_quantity = problems_quantity
         self.sup_grade = sup_grade
     def calculate_order(self, marks):
         # Когда задаем порядок, то для равных по оценкам людей сортируем в случайном порядке
         order = [x for x in sorted(self.mapped_preferences.keys(), key = lambda y: (marks[y], random())) if (x not in self.blacklist and marks[x] < self.sup_grade)]
-        print(marks)
+        #print(marks)
         assert(len(order) > 0)
         return order
     # Возвращает словарь распределенных задач для одного прохода по списку людей в формате: Имя -- номер задачи
