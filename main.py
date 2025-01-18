@@ -29,9 +29,8 @@ SETTINGS_FILE = 'settings.json'
 STATE_FILE = 'state.json'
 NOTIF_OFF_USERS_FILE = 'notif_off_users.json'
 # Константы
-AWAITING_NAME, AWAITING_TASKS, AWAITING_MESSAGE = range(3)
+AWAITING_NAME, AWAITING_TASKS, AWAITING_MESSAGE, AWAITING_USER_LIST, AWAITING_MESSAGE_CONTENT = range(5)
 AWAITING_FILE = range(1)
-
 
 QUANTITY_OF_PREFS = 0
 QUANTITY_OF_TASKS = 0
@@ -191,6 +190,7 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['state'] = AWAITING_MESSAGE
     return AWAITING_MESSAGE
 
+
 # Получение сообщения
 async def receive_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_data = context.user_data
@@ -201,6 +201,98 @@ async def receive_broadcast_message(update: Update, context: ContextTypes.DEFAUL
     context.user_data['state'] = None
     return ConversationHandler.END
     
+
+
+async def broadcast_alt_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_id = str(update.effective_user.id)
+    if user_id not in ADMINS:
+        await update.message.reply_text("У вас нет прав доступа для выполнения этой команды.")
+        return ConversationHandler.END
+
+    await update.message.reply_text(
+        "Введите список имен пользователей через запятую и пробел, которым вы хотите отправить сообщение.\n"
+        "Например: 123456789,987654321"
+    )
+    context.user_data['state'] = AWAITING_USER_LIST
+    return AWAITING_USER_LIST
+
+async def broadcast_alt_get_user_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_ids_text = update.message.text
+    try:
+        user_names = [uid.strip() for uid in user_ids_text.split(', ')]
+        #-----
+        users_data = load_data(USERS_FILE)
+        ids = [x for x in users_data.keys() if users_data[x] in user_names]
+        #-----
+        context.user_data['target_user_ids'] = ids 
+    except ValueError:
+        await update.message.reply_text("Пожалуйста, убедитесь, что вы ввели корректные user_id через запятую.")
+        context.user_data['state'] = AWAITING_USER_LIST
+        return AWAITING_USER_LIST
+
+    await update.message.reply_text("Отправьте сообщение, которое вы хотите разослать выбранным пользователям.\n"
+                                    "Это может быть текст, изображение, видео и т.д.")
+    context.user_data['state'] = AWAITING_MESSAGE_CONTENT                                   
+    return AWAITING_MESSAGE_CONTENT
+
+async def broadcast_alt_send_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    target_user_ids = context.user_data.get('target_user_ids', [])
+    message = update.message
+
+    if not target_user_ids:
+        await update.message.reply_text("Список пользователей не был предоставлен.")
+        return ConversationHandler.END
+
+    sent_count = 0
+    failed = []
+
+    for user_id in target_user_ids:
+        try:
+            if message.text:
+                await context.bot.send_message(chat_id=user_id, text=message.text)
+            elif message.photo:
+                photo = message.photo[-1].file_id
+                caption = message.caption or ""
+                await context.bot.send_photo(chat_id=user_id, photo=photo, caption=caption)
+            elif message.video:
+                video = message.video.file_id
+                caption = message.caption or ""
+                await context.bot.send_video(chat_id=user_id, video=video, caption=caption)
+            elif message.document:
+                document = message.document.file_id
+                caption = message.caption or ""
+                await context.bot.send_document(chat_id=user_id, document=document, caption=caption)
+            elif message.sticker:
+                sticker = message.sticker.file_id
+                await context.bot.send_sticker(chat_id=user_id, sticker=sticker)
+            elif message.voice:
+                voice = message.voice.file_id
+                await context.bot.send_voice(chat_id=user_id, voice=voice)
+            else:
+                await context.bot.send_message(chat_id=user_id, text="Неизвестный тип сообщения.")
+            sent_count += 1
+        except Exception as e:
+            logger.error(f"Не удалось отправить сообщение пользователю {user_id}: {e}")
+            failed.append(user_id)
+
+    await update.message.reply_text(
+        f"Сообщение успешно отправлено {sent_count} пользователям."
+        + (f"\nНе удалось отправить сообщения пользователям: {', '.join(map(str, failed))}" if failed else "")
+    )
+
+    return ConversationHandler.END
+
+
+
+
+
+
+
+
+
+
+
+
 # Команда для отправки номеров задач
 async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_data = context.user_data
@@ -345,8 +437,17 @@ async def handle_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await receive_name(update, context)
     elif context.user_data.get('state') == AWAITING_MESSAGE:
         await receive_broadcast_message(update, context)
+    elif context.user_data.get('state') == AWAITING_USER_LIST:
+        await broadcast_alt_get_user_list(update, context)
+    elif context.user_data.get('state') == AWAITING_MESSAGE_CONTENT:
+        await broadcast_alt_send_message(update, context)
     else:
         await update.message.reply_text("Неизвестная команда, введите /help для вывода справки.")
+    
+
+
+
+
 
 async def execute_archive(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -591,7 +692,8 @@ def main() -> None:
     app.add_handler(CommandHandler("time", time_correct_work_check)) # Выводит время
     app.add_handler(CommandHandler("notify_off", notify_off)) # Отключает уведолмения о неоптравленных задачах
     app.add_handler(CommandHandler("notify_on", notify_on)) # Включает уведолмения о неоптравленных задачах
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messages))  # Хендлер для всех сообщений
+    app.add_handler(CommandHandler("broadcast_alt", broadcast_alt_start))
+    app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO)& ~filters.COMMAND, handle_messages))  # Хендлер для всех сообщений
     # хендлер для изменения настроек
     app.add_handler(update_settings_handler)
     # Запуск фоновых задач
